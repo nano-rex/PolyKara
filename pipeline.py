@@ -325,9 +325,17 @@ def lyrics(dry_run: bool) -> None:
         if not entries:
             raise SystemExit(f"No timed lines found in {path}")
         timing_path = word_json(row)
-        if timing_path is not None:
-            entries = apply_word_timing(entries, timing_path)
-            source_label += " + word alignment"
+        if timing_path is None and not dry_run:
+            print(f"{row['id']}: word timing missing; starting automatic alignment")
+            align(False)
+            timing_path = word_json(row)
+        if timing_path is None:
+            raise SystemExit(
+                f"{row['id']} has no word-level timing. Automatic alignment requires WhisperX; "
+                "install requirements-align.txt and rerun."
+            )
+        entries = apply_word_timing(entries, timing_path)
+        source_label += " + word alignment"
         if not dry_run:
             (ASS / f"{row['id']}.auto.ass").write_text(ass(row, entries), encoding="utf-8")
         word_lines = sum(1 for _, _, _, words in entries if words)
@@ -354,17 +362,21 @@ def edit(row: dict[str, str]) -> None:
         print(f"Open this file in Aegisub or Subtitle Edit: {edited}")
 
 
-def render(dry_run: bool, allow_line_only: bool) -> None:
+def render(dry_run: bool) -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for row in rows():
         subtitle = edited_path(row["id"]) if edited_path(row["id"]).exists() else ASS / f"{row['id']}.auto.ass"
         if not subtitle.exists():
             raise SystemExit(f"Missing ASS for {row['id']}; run lyrics first")
         ass_text = subtitle.read_text(encoding="utf-8")
-        if "{\\k" not in ass_text and not allow_line_only:
+        if "{\\k" not in ass_text and not edited_path(row["id"]).exists() and not dry_run:
+            print(f"{row['id']}: render requested without word timing; starting automatic alignment")
+            lyrics(False)
+            ass_text = subtitle.read_text(encoding="utf-8")
+        if "{\\k" not in ass_text:
             raise SystemExit(
-                f"{row['id']} has line timing only. Supply enhanced LRC or word-level alignment first; "
-                "use --allow-line-only only for a visual preview."
+                f"{row['id']} has line timing only. Run `python3 pipeline.py lyrics` to trigger "
+                "automatic word-level alignment before rendering."
             )
         subtitle_filter_path = str(subtitle).replace("\\", "/").replace(":", "\\:")
         vf = f"ass={subtitle_filter_path}"
@@ -382,7 +394,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "cleanup", "qa"))
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--allow-line-only", action="store_true", help="allow rendering without word/syllable karaoke timing")
     parser.add_argument("--drop-source", action="store_true", help="also remove raw source media after rendered output and edited ASS exist")
     args = parser.parse_args()
     if args.command == "check": check()
@@ -392,7 +403,7 @@ def main() -> int:
     elif args.command == "lyrics": lyrics(args.dry_run)
     elif args.command == "edit":
         for row in rows(): edit(row)
-    elif args.command == "render": render(args.dry_run, args.allow_line_only)
+    elif args.command == "render": render(args.dry_run)
     elif args.command == "cleanup": cleanup(args.dry_run, args.drop_source)
     else: qa()
     return 0
