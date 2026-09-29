@@ -28,7 +28,12 @@ def download(dry_run: bool, trending: bool = False, regions: str = "", pick: boo
         directory.mkdir(parents=True, exist_ok=True)
     for row in rows():
         langs = row.get("subtitle_langs", "all").strip() or "all"
-        run(["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--download-archive", str(RAW.parent / "download-archive.txt"), "--write-info-json", "--no-overwrites", "-o", str(RAW / f"{row['id']}.%(ext)s"), row["url"].strip()], dry_run)
+        media_cmd = ["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--download-archive", str(RAW.parent / "download-archive.txt"), "--write-info-json", "--retries", "3", "--fragment-retries", "3", "--sleep-requests", "1", "--no-overwrites", "-o", str(RAW / f"{row['id']}.%(ext)s"), row["url"].strip()]
+        try:
+            run(media_cmd, dry_run)
+        except subprocess.CalledProcessError as exc:
+            print(f"SKIP {row['id']}: media download failed ({exc}); continuing")
+            continue
         subtitle_cmd = ["yt-dlp", "--no-playlist", "--restrict-filenames", "--skip-download", "--ignore-errors", "--retries", "3", "--fragment-retries", "3", "--sleep-requests", "1", "--write-subs", "--write-auto-subs", "--sub-langs", langs, "--sub-format", "vtt", "-P", f"subtitle:{SUBTITLES}", "-o", "subtitle:%(id)s.%(language)s.%(ext)s", "--no-overwrites", row["url"].strip()]
         try:
             run(subtitle_cmd, dry_run)
