@@ -1,4 +1,4 @@
-id,url,title,artist,lyricist,composer,producer,template,language,subtitle_langs,lyrics_file,word_timing_file,logo_file,prompt_ms,align_model
-example,,Example Song,Example Artist,,,Your Name,solo,en,en.*, , , ,1000,auto
-amazing-grace-vocal,https://www.youtube.com/watch?v=24cWZeB4ldE,Amazing Grace,Public Domain Music,John Newton,Traditional,Your Name,solo,en,en.*,lyrics/amazing-grace-vocal.lrc,,,1000,auto
-silent-night-vocal,https://www.youtube.com/watch?v=25NY8yTolMY,Silent Night,Eldred Mesher,Joseph Mohr,Franz Xaver Gruber,Your Name,solo,en,en.*,lyrics/silent-night-vocal.lrc,,,1000,auto
+id,url,title,artist,lyricist,composer,producer,template,language,subtitle_langs,lyrics_file,word_timing_file,logo_file,prompt_ms,align_model,lyric_sources
+example,,Example Song,Example Artist,,,Your Name,solo,en,en.*, , , ,1000,auto,"lrclib,lyrics.ovh"
+amazing-grace-vocal,https://www.youtube.com/watch?v=24cWZeB4ldE,Amazing Grace,Public Domain Music,John Newton,Traditional,Your Name,solo,en,en.*,lyrics/amazing-grace-vocal.lrc,,,1000,auto,"lrclib,lyrics.ovh"
+silent-night-vocal,https://www.youtube.com/watch?v=25NY8yTolMY,Silent Night,Eldred Mesher,Joseph Mohr,Franz Xaver Gruber,Your Name,solo,en,en.*,lyrics/silent-night-vocal.lrc,,,1000,auto,"lrclib,lyrics.ovh"

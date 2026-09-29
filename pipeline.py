@@ -10,12 +10,15 @@ import shutil
 import subprocess
 import sys
 import os
+from difflib import SequenceMatcher
 from pathlib import Path
+from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "songs.csv"
 WORK = ROOT / "work"
-RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata"))
+RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA, EXTERNAL_LYRICS = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata", "lyrics"))
 DOWNLOAD_ARCHIVE = WORK / "download-archive.txt"
 TIMECODE = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
 WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
@@ -84,11 +87,85 @@ def download(dry_run: bool) -> None:
     RAW.mkdir(parents=True, exist_ok=True)
     SUBTITLES.mkdir(parents=True, exist_ok=True)
     METADATA.mkdir(parents=True, exist_ok=True)
+    EXTERNAL_LYRICS.mkdir(parents=True, exist_ok=True)
     for row in rows():
         subtitle_langs = row.get("subtitle_langs", "all").strip() or "all"
         run(["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--download-archive", str(DOWNLOAD_ARCHIVE), "--write-info-json", "--write-subs", "--write-auto-subs", "--sub-langs", subtitle_langs, "--sub-format", "vtt", "-P", f"subtitle:{SUBTITLES}", "-o", "subtitle:%(id)s.%(language)s.%(ext)s", "--no-overwrites", "-o", str(RAW / f"{row['id']}.%(ext)s"), row["url"].strip()], dry_run)
         if not dry_run:
             (METADATA / f"{row['id']}.json").write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            fetch_external_lyrics(row)
+
+
+def lyric_sources(row: dict[str, str]) -> list[str]:
+    configured = row.get("lyric_sources", "lrclib,lyrics.ovh").strip()
+    return [item.strip().lower() for item in configured.split(",") if item.strip()]
+
+
+def fetch_json(url: str) -> dict:
+    request = Request(url, headers={"User-Agent": "PolyKara/1.0 (+https://github.com/nano-rex/PolyKara)"})
+    with urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def lyric_text(value: str) -> str:
+    value = re.sub(r"\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]", " ", value or "")
+    value = re.sub(r"<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>", " ", value)
+    value = re.sub(r"[^\w\u3000-\u9fff\u3040-\u30ff\uac00-\ud7af]+", " ", value.casefold())
+    return " ".join(value.split())
+
+
+def external_lyrics_path(row: dict[str, str]) -> Path:
+    return EXTERNAL_LYRICS / f"{row['id']}.lrc"
+
+
+def fetch_external_lyrics(row: dict[str, str]) -> Path | None:
+    """Fetch timed lyrics and accept them only after metadata/text validation."""
+    output = external_lyrics_path(row)
+    if output.exists():
+        print(f"{row['id']}: using cached external lyrics {output.name}")
+        return output
+    sources = lyric_sources(row)
+    title = row["title"].strip()
+    artist = row["artist"].strip()
+    lrclib: dict = {}
+    plain_candidates: list[str] = []
+    for source_name in sources:
+        try:
+            if source_name == "lrclib":
+                query = urlencode({"artist_name": artist, "track_name": title})
+                lrclib = fetch_json(f"https://lrclib.net/api/get?{query}")
+                if lrclib.get("plainLyrics"):
+                    plain_candidates.append(str(lrclib["plainLyrics"]))
+            elif source_name == "lyrics.ovh":
+                result = fetch_json(f"https://api.lyrics.ovh/v1/{quote(artist, safe='')}/{quote(title, safe='')}")
+                if result.get("lyrics"):
+                    plain_candidates.append(str(result["lyrics"]))
+        except Exception as exc:
+            print(f"{row['id']}: lyric source {source_name} unavailable ({exc})")
+    synced = str(lrclib.get("syncedLyrics") or "").strip()
+    if not synced:
+        print(f"{row['id']}: no synced lyrics found from configured external sources")
+        return None
+    returned_title = lyric_text(str(lrclib.get("trackName") or title))
+    returned_artist = lyric_text(str(lrclib.get("artistName") or artist))
+    if not returned_title or not returned_artist or not (lyric_text(title) in returned_title or returned_title in lyric_text(title)) or not (lyric_text(artist) in returned_artist or returned_artist in lyric_text(artist)):
+        print(f"SKIP {row['id']}: external lyrics metadata does not match manifest")
+        return None
+    synced_text = lyric_text(synced)
+    comparisons = [SequenceMatcher(None, synced_text, lyric_text(candidate)).ratio() for candidate in plain_candidates if lyric_text(candidate)]
+    if comparisons and max(comparisons) < 0.55:
+        print(f"SKIP {row['id']}: external lyric sources disagree; review lyrics manually")
+        return None
+    output.write_text(synced + "\n", encoding="utf-8")
+    (EXTERNAL_LYRICS / f"{row['id']}.json").write_text(json.dumps({
+        "source": "lrclib",
+        "validation_sources": sources,
+        "validation_similarity": max(comparisons) if comparisons else None,
+        "title": lrclib.get("trackName", title),
+        "artist": lrclib.get("artistName", artist),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"{row['id']}: downloaded validated synced lyrics from LRCLIB")
+    return output
 
 
 def normalize(dry_run: bool) -> None:
@@ -344,6 +421,11 @@ def downloaded_subtitle(row: dict[str, str]) -> Path | None:
     return sorted(candidates, key=rank)[0]
 
 
+def downloaded_external_lyrics(row: dict[str, str]) -> Path | None:
+    path = external_lyrics_path(row)
+    return path if path.exists() else None
+
+
 def at(value: int) -> str:
     cs = max(0, value) // 10
     return f"{cs // 360000}:{(cs // 6000) % 60:02d}:{(cs // 100) % 60:02d}.{cs % 100:02d}"
@@ -392,22 +474,27 @@ def lyrics(dry_run: bool) -> None:
         if path is not None:
             entries = timed_subtitle(path)
         else:
-            raw = row.get("lyrics_file", "").strip()
-            if not raw:
-                print(f"SKIP {row['id']}: no downloaded subtitle and lyrics_file is empty")
-                continue
-            path = Path(raw)
-            if not path.is_absolute():
-                path = ROOT / path
-            if not path.exists():
-                raise SystemExit(f"Lyrics file not found: {path}")
-            if path.suffix.lower() == ".lrc":
+            path = downloaded_external_lyrics(row)
+            if path is not None:
                 entries = lrc(path)
-            elif path.suffix.lower() in {".srt", ".vtt"}:
-                entries = timed_subtitle(path)
+                source_label = "validated external lyrics"
             else:
-                raise SystemExit(f"Expected .lrc, .srt, or .vtt: {path}")
-            source_label = "manifest lyrics_file"
+                raw = row.get("lyrics_file", "").strip()
+                if not raw:
+                    print(f"SKIP {row['id']}: no downloaded subtitle, external lyrics, or lyrics_file")
+                    continue
+                path = Path(raw)
+                if not path.is_absolute():
+                    path = ROOT / path
+                if not path.exists():
+                    raise SystemExit(f"Lyrics file not found: {path}")
+                if path.suffix.lower() == ".lrc":
+                    entries = lrc(path)
+                elif path.suffix.lower() in {".srt", ".vtt"}:
+                    entries = timed_subtitle(path)
+                else:
+                    raise SystemExit(f"Expected .lrc, .srt, or .vtt: {path}")
+                source_label = "manifest lyrics_file"
         if not entries:
             raise SystemExit(f"No timed lines found in {path}")
         timing_path = word_json(row)

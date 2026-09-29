@@ -48,7 +48,9 @@
 
    `align_model=auto` 会检测系统总内存，并预留一半给操作系统和其他程序：8 GB 总内存会得到约 4 GB 对齐预算并使用 `small`，16 GB 使用 `medium`，32 GB 左右才会使用 `large-v3`。如需固定模型，可在 `songs.csv` 中改为 `tiny`、`base`、`small`、`medium` 或 `large-v3`。
 
-   下载阶段同时会保存 YouTube 提供的人工字幕和自动字幕到 `work/subtitles/`。用 `subtitle_langs` 控制语言，例如 `zh.*,yue,ja,ko,ta,en.*`；下载到的字幕优先于 `lyrics_file`。
+   下载阶段同时会保存 YouTube 提供的人工字幕和自动字幕到 `work/subtitles/`，并从 `lyric_sources` 指定的来源获取同步歌词到 `work/lyrics/`。当前内置 `lrclib` 和 `lyrics.ovh`：LRCLIB 提供同步 LRC，Lyrics.ovh 用于交叉核对歌词文本。用 `subtitle_langs` 控制 YouTube 字幕语言，例如 `zh.*,yue,ja,ko,ta,en.*`。
+
+   歌词优先级为：YouTube 字幕 → 通过标题/歌手元数据和跨来源文本相似度验证的外部同步歌词 → `lyrics_file`。如果外部来源互相矛盾，PolyKara 会拒绝自动采用并提示人工审核，避免静默生成错误歌词。外部结果会缓存，避免重复请求。
 
 7. 将匹配实际音频版本的带时间 LRC 放在 `lyrics_file` 指定位置，然后生成自动 ASS：
 
