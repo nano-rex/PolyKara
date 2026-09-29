@@ -4,6 +4,8 @@ Multilingual karaoke subtitle automation with an editable ASS workflow.
 
 Documentation: [简体中文](README.zh-CN.md)
 
+Presentation and chart defaults are configured in [`polykara.toml`](polykara.toml). It controls fonts, sizes, colors, title/credit placement, watermarking, video resolution, and enabled chart regions.
+
 PolyKara separates repeatable CLI processing from final GUI adjustments. It produces editable ASS subtitles, supports word-level karaoke highlighting, and renders final MP4 files with FFmpeg.
 
 ## Quick start
@@ -70,6 +72,23 @@ Enhanced LRC supports word or syllable marks:
 Songs without word-level timing are skipped rather than rendered with false karaoke highlighting.
 
 ## Karaoke presentation
+
+Edit `polykara.toml` to change the lyric font, size, colors, title card, credits, or watermark. For example:
+
+```toml
+[lyric]
+font = "Noto Sans CJK SC"
+size = 60
+color = "&H00FF0000"
+
+[watermark]
+enabled = true
+text = "My Karaoke Studio"
+alignment = 9
+
+[charts]
+enabled_regions = ["my", "sg", "jp", "us"]
+```
 
 For vocal pauses of at least 30 seconds, the final three seconds display `.`, `..`, and `...`, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
 

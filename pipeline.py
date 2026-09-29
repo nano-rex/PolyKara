@@ -12,7 +12,7 @@ from pathlib import Path
 from polykara.alignment import align
 from polykara.ass import ass
 from polykara.charts import REGIONS, add_selected
-from polykara.config import ALIGN, ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, run, require_current_ytdlp
+from polykara.config import ALIGN, ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, run, require_current_ytdlp
 from polykara.manifest import check, rows, source
 from polykara.providers import external_lyrics_path, external_webpage_path, fetch_external_lyrics
 from polykara.subtitle import apply_word_timing, downloaded_subtitle, lrc, plain_lyrics_entries, timed_subtitle, word_json
@@ -20,7 +20,7 @@ from polykara.subtitle import apply_word_timing, downloaded_subtitle, lrc, plain
 
 def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False) -> None:
     if trending:
-        selected_regions = [item.strip().lower() for item in regions.split(",") if item.strip()] if regions else list(REGIONS)
+        selected_regions = [item.strip().lower() for item in regions.split(",") if item.strip()] if regions else enabled_regions()
         add_selected(selected_regions, pick)
         return
     require_current_ytdlp()

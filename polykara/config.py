@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "songs.csv"
+CONFIG_FILE = ROOT / "polykara.toml"
 WORK = ROOT / "work"
 RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA, EXTERNAL_LYRICS = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata", "lyrics"))
 DOWNLOAD_ARCHIVE = WORK / "download-archive.txt"
@@ -23,6 +25,38 @@ SPEAKER_PALETTE = (
     "&H00616FFF", "&H0002DEA4", "&H0082004B", "&H00C000C0",
 )
 SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
+
+
+DEFAULT_CONFIG = {
+    "video": {"play_res_x": 1920, "play_res_y": 1080},
+    "title": {"enabled": True, "text": "{title}  |  {artist}", "font": "Arial", "size": 42, "color": "&H00FFFFFF", "alignment": 8, "margin_l": 40, "margin_r": 40, "margin_v": 40},
+    "credit": {"enabled": True, "text": "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}", "font": "Arial", "size": 28, "color": "&H00FFFFFF", "alignment": 2, "margin_l": 40, "margin_r": 40, "margin_v": 70},
+    "lyric": {"font": "Arial", "size": 58, "color": "&H00FF0000", "secondary_color": "&H00FFFFFF", "outline_color": "&H80000000", "back_color": "&H50000000", "alignment": 2, "margin_l": 80, "margin_r": 80, "margin_v": 150},
+    "prompt": {"font": "Arial", "size": 44, "color": "&H00FFFFFF", "alignment": 1, "margin_l": 80, "margin_r": 80, "margin_v": 220},
+    "watermark": {"enabled": False, "text": "PolyKara", "font": "Arial", "size": 24, "color": "&H80FFFFFF", "alignment": 9, "margin_l": 40, "margin_r": 40, "margin_v": 40},
+    "charts": {"enabled_regions": ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]},
+}
+
+
+def _merge(base: dict, override: dict) -> dict:
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def load_config() -> dict:
+    config = {key: (value.copy() if isinstance(value, dict) else list(value) if isinstance(value, list) else value) for key, value in DEFAULT_CONFIG.items()}
+    if CONFIG_FILE.exists():
+        with CONFIG_FILE.open("rb") as handle:
+            _merge(config, tomllib.load(handle))
+    return config
+
+
+def enabled_regions() -> list[str]:
+    return [str(region).lower() for region in load_config().get("charts", {}).get("enabled_regions", [])]
 
 
 def run(cmd: list[str], dry_run: bool = False) -> None:

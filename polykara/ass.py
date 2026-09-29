@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE
+from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
 from .subtitle import split_speaker
 
 
@@ -14,19 +14,31 @@ def esc(value: str) -> str:
 
 
 def ass(row: dict[str, str], entries) -> str:
-    title = esc(f"{row['title']}  |  {row['artist']}")
-    credit = esc(f"作词：{row['lyricist']}    作曲：{row['composer']}    字幕制作：{row['producer']}")
+    config = load_config()
+    video, title_style = config["video"], config["title"]
+    credit_style, lyric_style = config["credit"], config["lyric"]
+    prompt_style, watermark_style = config["prompt"], config["watermark"]
+    def text_template(values: dict, fallback: str) -> str:
+        try:
+            return str(values.get("text", fallback)).format(**row)
+        except KeyError as exc:
+            raise ValueError(f"Unknown title/credit template field: {exc.args[0]}") from exc
+    title = esc(text_template(title_style, "{title}  |  {artist}"))
+    credit = esc(text_template(credit_style, "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}"))
+    def style(name: str, values: dict, primary: str, secondary: str = "&H00FFFFFF", outline: str = "&H80000000", back: str = "&H50000000") -> str:
+        return f"Style: {name},{values['font']},{values['size']},{values.get('color', primary)},{values.get('secondary_color', secondary)},{values.get('outline_color', outline)},{values.get('back_color', back)},1,0,0,0,100,100,0,0,1,2,1,{values['alignment']},{values['margin_l']},{values['margin_r']},{values['margin_v']},1"
     out = [
-        "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1920", "PlayResY: 1080", "WrapStyle: 2", "ScaledBorderAndShadow: yes", "",
+        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {video['play_res_x']}", f"PlayResY: {video['play_res_y']}", "WrapStyle: 2", "ScaledBorderAndShadow: yes", "",
         "[V4+ Styles]", "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Header,Arial,42,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,8,40,40,40,1",
-        "Style: Credit,Arial,28,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,0,0,0,0,100,100,0,0,1,2,1,2,40,40,70,1",
-        "Style: Lyric,Arial,58,&H00FF0000,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,150,1", "",
-        "Style: Prompt,Arial,44,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,1,80,80,220,1", "",
+        style("Header", title_style, "&H00FFFFFF"), style("Credit", credit_style, "&H00FFFFFF"), style("Lyric", lyric_style, "&H00FF0000"), style("Prompt", prompt_style, "&H00FFFFFF"), style("Watermark", watermark_style, "&H80FFFFFF"), "",
         "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        f"Dialogue: 0,0:00:00.00,0:00:06.00,Header,,0,0,40,,{title}",
-        f"Dialogue: 0,0:00:00.00,0:00:06.00,Credit,,0,0,70,,{credit}",
     ]
+    if title_style.get("enabled", True):
+        out.append(f"Dialogue: 0,0:00:00.00,0:00:06.00,Header,,0,0,0,,{title}")
+    if credit_style.get("enabled", True):
+        out.append(f"Dialogue: 0,0:00:00.00,0:00:06.00,Credit,,0,0,0,,{credit}")
+    if watermark_style.get("enabled", False) and watermark_style.get("text", ""):
+        out.append(f"Dialogue: 1,0:00:00.00,9:59:59.99,Watermark,,0,0,0,,{esc(str(watermark_style['text']))}")
     speakers = []
     for _, _, text, _ in entries:
         speaker, _ = split_speaker(text)

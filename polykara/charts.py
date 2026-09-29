@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from .config import MANIFEST
+from .config import MANIFEST, enabled_regions
 
 REGIONS = {
     "my": ("Malaysia", "ms", "en.*"),

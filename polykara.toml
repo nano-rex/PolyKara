@@ -1,0 +1,63 @@
+# PolyKara presentation and chart configuration.
+
+[video]
+play_res_x = 1920
+play_res_y = 1080
+
+[title]
+enabled = true
+text = "{title}  |  {artist}"
+font = "Arial"
+size = 42
+color = "&H00FFFFFF"
+alignment = 8
+margin_l = 40
+margin_r = 40
+margin_v = 40
+
+[credit]
+enabled = true
+text = "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}"
+font = "Arial"
+size = 28
+color = "&H00FFFFFF"
+alignment = 2
+margin_l = 40
+margin_r = 40
+margin_v = 70
+
+[lyric]
+font = "Arial"
+size = 58
+color = "&H00FF0000"
+secondary_color = "&H00FFFFFF"
+outline_color = "&H80000000"
+back_color = "&H50000000"
+alignment = 2
+margin_l = 80
+margin_r = 80
+margin_v = 150
+
+[prompt]
+font = "Arial"
+size = 44
+color = "&H00FFFFFF"
+alignment = 1
+margin_l = 80
+margin_r = 80
+margin_v = 220
+
+[watermark]
+enabled = false
+text = "PolyKara"
+font = "Arial"
+size = 24
+color = "&H80FFFFFF"
+alignment = 9
+margin_l = 40
+margin_r = 40
+margin_v = 40
+
+[charts]
+# Remove a region code to disable it from default --trending selection.
+enabled_regions = ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]
