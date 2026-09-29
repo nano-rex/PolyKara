@@ -63,6 +63,15 @@ Lyrics priority is:
 
 External sources include LRCLIB, Lyrics.ovh, and configured public lyric webpages. Webpage extraction reads known lyric containers and does not bypass login, paywalls, CAPTCHAs, or anti-bot controls. Conflicting lyrics are rejected for manual review.
 
+Configure provider order centrally:
+
+```toml
+[lyrics]
+sources = ["lrclib", "lyrics.ovh", "webpage"]
+```
+
+An individual `lyric_sources` value in `songs.csv` overrides the global list for that song. `lyric_pages` remains per-song because webpage URLs identify the specific track.
+
 Enhanced LRC supports word or syllable marks:
 
 ```text

@@ -7,11 +7,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
-from .config import EXTERNAL_LYRICS
+from .config import EXTERNAL_LYRICS, load_config
 
 
 def lyric_sources(row: dict[str, str]) -> list[str]:
-    return [item.strip().lower() for item in row.get("lyric_sources", "lrclib,lyrics.ovh,webpage").split(",") if item.strip()]
+    configured = row.get("lyric_sources", "").strip()
+    if configured:
+        return [item.strip().lower() for item in configured.split(",") if item.strip()]
+    return [str(item).strip().lower() for item in load_config().get("lyrics", {}).get("sources", []) if str(item).strip()]
 
 
 def fetch_json(url: str) -> dict:

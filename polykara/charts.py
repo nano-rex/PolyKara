@@ -103,7 +103,7 @@ def add_selected(regions: list[str], pick: bool = False) -> None:
             sid, suffix = f"{base}-{suffix}", suffix + 1
         language, subtitle_langs = REGIONS[region][1], REGIONS[region][2]
         row = {name: "" for name in fieldnames}
-        row.update({"id": sid, "url": item["url"], "title": item["title"], "artist": item["artist"], "template": "solo", "language": language, "subtitle_langs": subtitle_langs, "prompt_ms": "1000", "align_model": "auto", "lyric_sources": "lrclib,lyrics.ovh,webpage"})
+        row.update({"id": sid, "url": item["url"], "title": item["title"], "artist": item["artist"], "template": "solo", "language": language, "subtitle_langs": subtitle_langs, "prompt_ms": "1000", "align_model": "auto"})
         existing.append(row)
         existing_urls.add(item["url"])
         existing_ids.add(sid)

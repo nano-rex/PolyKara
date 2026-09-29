@@ -63,6 +63,10 @@ active_color = "&H00FF0000"
 inactive_color = "&H00FFFFFF"
 tag = "kf"
 
+[lyrics]
+# Provider order. Use an empty list to disable automatic external lookup.
+sources = ["lrclib", "lyrics.ovh", "webpage"]
+
 [alignment]
 # auto reserves reserve_memory_gib for the system and selects a model from the thresholds.
 # Set model to tiny/base/small/medium/large-v3 to disable automatic selection.
