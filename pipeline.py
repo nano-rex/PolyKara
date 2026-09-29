@@ -195,8 +195,21 @@ def cleanup(dry_run: bool, drop_source: bool) -> None:
 
 def word_json(row: dict[str, str]) -> Path | None:
     configured = row.get("word_timing_file", "").strip()
-    path = (ROOT / configured) if configured and not Path(configured).is_absolute() else Path(configured) if configured else ALIGN / f"{row['id']}.json"
-    return path if path.exists() else None
+    if configured:
+        path = (ROOT / configured) if not Path(configured).is_absolute() else Path(configured)
+        return path if path.exists() else None
+    exact = ALIGN / f"{row['id']}.json"
+    if exact.exists():
+        return exact
+    # WhisperX versions can retain the input extension or place JSON in a
+    # per-file directory. Accept those layouts as well.
+    candidates = sorted(
+        path for path in ALIGN.rglob("*.json")
+        if path.name == f"{row['id']}.json"
+        or path.name.startswith(f"{row['id']}.")
+        or path.parent.name == row["id"]
+    )
+    return candidates[0] if candidates else None
 
 
 def tokenise(text: str) -> list[str]:
@@ -208,7 +221,10 @@ def tokenise(text: str) -> list[str]:
 def apply_word_timing(entries: list[Entry], path: Path) -> list[Entry]:
     data = json.loads(path.read_text(encoding="utf-8"))
     timed_words = []
-    for segment in data.get("segments", []):
+    segments = data.get("segments", [])
+    if not segments and data.get("word_segments"):
+        segments = [{"words": data["word_segments"]}]
+    for segment in segments:
         for word in segment.get("words", segment.get("word_segments", [])):
             if word.get("start") is not None and word.get("end") is not None:
                 timed_words.append((float(word["start"]) * 1000, float(word["end"]) * 1000, str(word.get("word", "")).strip()))
@@ -423,6 +439,20 @@ def edited_path(sid: str) -> Path:
     return ASS / f"{sid}.edited.ass"
 
 
+def render_subtitle(row: dict[str, str]) -> Path:
+    """Prefer edited ASS only when it still contains karaoke timing."""
+    edited = edited_path(row["id"])
+    auto = ASS / f"{row['id']}.auto.ass"
+    if edited.exists():
+        edited_text = edited.read_text(encoding="utf-8")
+        if "{\\k" in edited_text:
+            return edited
+        if auto.exists() and "{\\k" in auto.read_text(encoding="utf-8"):
+            print(f"{row['id']}: edited ASS has no word timing; using automatic ASS")
+            return auto
+    return edited if edited.exists() else auto
+
+
 def edit(row: dict[str, str]) -> None:
     auto = ASS / f"{row['id']}.auto.ass"
     edited = edited_path(row["id"])
@@ -463,8 +493,7 @@ def render(dry_run: bool, force: bool) -> None:
     song_rows = rows()
     if not dry_run:
         needs_alignment = any(
-            not edited_path(row["id"]).exists()
-            and (ASS / f"{row['id']}.auto.ass").exists()
+            (ASS / f"{row['id']}.auto.ass").exists()
             and "{\\k" not in (ASS / f"{row['id']}.auto.ass").read_text(encoding="utf-8")
             for row in song_rows
         )
@@ -475,7 +504,7 @@ def render(dry_run: bool, force: bool) -> None:
         output = OUTPUT / f"{row['id']}.mp4"
         if not confirm_reprocess(row["id"], output, force, dry_run):
             continue
-        subtitle = edited_path(row["id"]) if edited_path(row["id"]).exists() else ASS / f"{row['id']}.auto.ass"
+        subtitle = render_subtitle(row)
         if not subtitle.exists():
             raise SystemExit(f"Missing ASS for {row['id']}; run lyrics first")
         ass_text = subtitle.read_text(encoding="utf-8")
