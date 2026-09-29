@@ -12,13 +12,14 @@ def alignment_model(row: dict[str, str]) -> str:
     if configured != "auto":
         return configured
     total_gib = total_memory_bytes() / (1024 ** 3)
-    budget_gib = total_gib * float(settings.get("reserve_fraction", 0.5))
+    reserve_gib = max(0, float(settings.get("reserve_memory_gib", 2)))
+    budget_gib = max(0, total_gib - reserve_gib)
     large_min = float(settings.get("large_min_budget_gib", 12))
     medium_min = float(settings.get("medium_min_budget_gib", 8))
     small_min = float(settings.get("small_min_budget_gib", 4))
     base_min = float(settings.get("base_min_budget_gib", 2))
     model = "large-v3" if budget_gib >= large_min else "medium" if budget_gib >= medium_min else "small" if budget_gib >= small_min else "base" if budget_gib >= base_min else "tiny"
-    print(f"{row['id']}: detected {total_gib:.1f} GiB RAM; reserving {budget_gib:.1f} GiB for alignment -> {model}")
+    print(f"{row['id']}: detected {total_gib:.1f} GiB RAM; reserving {reserve_gib:.1f} GiB for the system, using {budget_gib:.1f} GiB for alignment -> {model}")
     return model
 
 

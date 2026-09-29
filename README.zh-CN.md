@@ -47,7 +47,7 @@ python3 pipeline.py render --reprocess
 
 PolyKara 优先使用 YouTube 字幕，其次使用经过标题、歌手和跨来源文本验证的同步歌词，最后使用 `lyrics_file`。支持 LRCLIB、Lyrics.ovh 和公开歌词网页容器。没有 word-level timing 时不会生成假高亮视频。
 
-`align_model=auto` 会检测系统内存并预留一半给系统；可在 `songs.csv` 中固定为 `tiny`、`base`、`small`、`medium` 或 `large-v3`。
+`align_model=auto` 会检测系统内存，默认固定预留 2 GiB 给系统；例如 8 GiB 内存会给对轴预算 6 GiB。可在 `polykara.toml` 或 `songs.csv` 中调整模型和阈值。
 
 增强 LRC 示例：
 

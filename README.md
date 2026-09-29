@@ -53,7 +53,7 @@ Install the alignment dependencies:
 pip install -r requirements-align.txt
 ```
 
-WhisperX is preferred. Faster-Whisper is used as a lighter CPU/ARM fallback. The automatic model selector reserves half of detected system memory: approximately 8 GB total selects `small`, 16 GB selects `medium`, and larger systems may select `large-v3`. Override `align_model` in `songs.csv` when needed.
+WhisperX is preferred. Faster-Whisper is used as a lighter CPU/ARM fallback. The automatic model selector reserves a fixed 2 GiB by default: an 8 GiB system receives a 6 GiB model budget. Override the thresholds or `align_model` in `polykara.toml`/`songs.csv` when needed.
 
 Lyrics priority is:
 
@@ -85,7 +85,7 @@ color = "&H00FF0000"
 model = "auto"
 device = "auto"
 compute_type = "int8"
-reserve_fraction = 0.5
+reserve_memory_gib = 2
 small_min_budget_gib = 4
 cpu_threads = 0
 
@@ -116,7 +116,7 @@ extend_intro = true
 
 When `extend_intro` is enabled, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
 
-Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_fraction = 0.5` means the model-selection budget is half of detected system RAM; it is a selection policy, not a hard operating-system memory limit.
+Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_memory_gib = 2` reserves a fixed 2 GiB for the system, so an 8 GiB machine receives a 6 GiB model-selection budget. This is a selection policy, not a hard operating-system memory limit.
 
 For vocal pauses of at least 30 seconds, the final three seconds display `.`, `..`, and `...`, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
 

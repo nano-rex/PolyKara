@@ -64,12 +64,12 @@ inactive_color = "&H00FFFFFF"
 tag = "kf"
 
 [alignment]
-# auto reserves half of detected RAM and selects a model from the thresholds.
+# auto reserves reserve_memory_gib for the system and selects a model from the thresholds.
 # Set model to tiny/base/small/medium/large-v3 to disable automatic selection.
 model = "auto"
 device = "auto"
 compute_type = "int8"
-reserve_fraction = 0.5
+reserve_memory_gib = 2
 base_min_budget_gib = 2
 small_min_budget_gib = 4
 medium_min_budget_gib = 8
