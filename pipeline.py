@@ -26,16 +26,24 @@ WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
 Entry = tuple[int, int, str, list[tuple[int, int, str]]]
 LONG_PAUSE_MS = 30_000
 DOT_INTERVAL_MS = 1_000
-MAX_SINGERS = 8
+MAX_SINGERS = 16
 SPEAKER_PALETTE = (
-    "&H00FF0000",  # blue
-    "&H00FF00FF",  # magenta
-    "&H0000FF00",  # green
-    "&H0000A5FF",  # orange
-    "&H00FFFF00",  # cyan
-    "&H008080FF",  # pink
-    "&H0000FFFF",  # yellow
-    "&H00FF8000",  # purple
+    "&H00B4771F",  # blue
+    "&H000E7FFF",  # orange
+    "&H002CA02C",  # green
+    "&H002827D6",  # red
+    "&H00BD6794",  # purple
+    "&H004B568C",  # brown
+    "&H00C277E3",  # pink
+    "&H007F7F7F",  # gray
+    "&H0022BDBC",  # olive
+    "&H00CFBE17",  # cyan
+    "&H00808000",  # teal
+    "&H0020A5DA",  # gold
+    "&H00616FFF",  # coral
+    "&H0002DEA4",  # lime
+    "&H0082004B",  # indigo
+    "&H00C000C0",  # magenta
 )
 SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
 
