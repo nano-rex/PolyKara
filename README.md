@@ -96,6 +96,14 @@
    python3 pipeline.py qa
    ```
 
+   也可以用一个命令运行下载、音频标准化、对齐、歌词生成和渲染：
+
+   ```bash
+   python3 pipeline.py process
+   ```
+
+   已存在的最终 MP4 会逐首询问是否重新处理；无人值守运行会跳过它们。需要全部重新渲染时使用 `python3 pipeline.py process --reprocess`。GUI 编辑和清理文件仍需显式执行。
+
 11. 清理可重复生成的中间音频：
 
    ```bash

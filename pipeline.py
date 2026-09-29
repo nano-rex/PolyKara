@@ -474,9 +474,25 @@ def qa() -> None:
         print(f"{row['id']}: source={'edited' if selected.name.endswith('.edited.ass') else 'automatic'}, ass={'OK' if selected.exists() else 'MISSING'}, mp4={'OK' if output.exists() else 'WAITING'}")
 
 
+def process(dry_run: bool, force: bool) -> None:
+    """Run the safe end-to-end production pipeline."""
+    print("== check ==")
+    check()
+    print("== download ==")
+    download(dry_run)
+    print("== normalize ==")
+    normalize(dry_run)
+    print("== align ==")
+    align(dry_run)
+    print("== lyrics ==")
+    lyrics(dry_run)
+    print("== render ==")
+    render(dry_run, force)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "cleanup", "qa"))
+    parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reprocess", action="store_true", help="render songs again even when the final MP4 already exists")
     parser.add_argument("--drop-source", action="store_true", help="also remove raw source media after rendered output and edited ASS exist")
@@ -489,6 +505,7 @@ def main() -> int:
     elif args.command == "edit":
         for row in rows(): edit(row)
     elif args.command == "render": render(args.dry_run, args.reprocess)
+    elif args.command == "process": process(args.dry_run, args.reprocess)
     elif args.command == "cleanup": cleanup(args.dry_run, args.drop_source)
     else: qa()
     return 0
