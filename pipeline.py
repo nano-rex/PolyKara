@@ -98,9 +98,7 @@ def normalize(dry_run: bool) -> None:
 
 
 def align_row(row: dict[str, str], dry_run: bool) -> None:
-    """Run WhisperX for one song and keep its word-level JSON intermediate."""
-    if shutil.which("whisperx") is None:
-        raise RuntimeError("WhisperX is not installed")
+    """Run a word-timestamp aligner and keep its JSON intermediate."""
     ALIGN.mkdir(parents=True, exist_ok=True)
     language = row.get("language", "").strip()
     audio = AUDIO / f"{row['id']}.flac"
@@ -109,8 +107,30 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
     if not audio.exists():
         raise RuntimeError(f"normalized audio is missing: {audio}")
     model = alignment_model(row)
-    print(f"{row['id']}: using WhisperX model {model}")
-    run(["whisperx", str(audio), "--model", model, "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+    if shutil.which("whisperx") is not None:
+        print(f"{row['id']}: using WhisperX model {model}")
+        run(["whisperx", str(audio), "--model", model, "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+        return
+    if dry_run:
+        raise RuntimeError("WhisperX and faster-whisper are not installed")
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError("WhisperX and faster-whisper are not installed; install requirements-align.txt") from exc
+    print(f"{row['id']}: using faster-whisper model {model} (word timestamps)")
+    transcriber = WhisperModel(model, device=row.get("device", "cpu") or "cpu", compute_type=row.get("compute_type", "int8") or "int8")
+    segments, _ = transcriber.transcribe(str(audio), language=language, word_timestamps=True, vad_filter=True)
+    output = []
+    for segment in segments:
+        words = [
+            {"start": word.start, "end": word.end, "word": word.word}
+            for word in (segment.words or [])
+            if word.start is not None and word.end is not None
+        ]
+        output.append({"start": segment.start, "end": segment.end, "text": segment.text, "words": words})
+    if not any(segment["words"] for segment in output):
+        raise RuntimeError("faster-whisper returned no word timestamps")
+    (ALIGN / f"{row['id']}.json").write_text(json.dumps({"segments": output}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def total_memory_bytes() -> int:

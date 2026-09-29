@@ -1,2 +1,4 @@
-# Optional dependency for automatic word-level timing.
+# Preferred forced aligner (more accurate, but much heavier).
 whisperx
+# Lightweight CPU/ARM fallback that still returns word timestamps.
+faster-whisper

@@ -40,11 +40,11 @@
 6. 运行自动 word-level 对轴：
 
    ```bash
-   pip install whisperx
+   pip install -r requirements-align.txt
    python3 pipeline.py align
    ```
 
-   结果保存在 `work/align/<id>.json`。WhisperX 需要较大的模型和足够的内存；生产环境应先按语言抽样验证，再批量处理。
+   结果保存在 `work/align/<id>.json`。如果 WhisperX 不可用，PolyKara 会自动使用较轻量的 Faster-Whisper，并保留逐词时间戳；生产环境应先按语言抽样验证，再批量处理。
 
    `align_model=auto` 会检测系统总内存，并预留一半给操作系统和其他程序：8 GB 总内存会得到约 4 GB 对齐预算并使用 `small`，16 GB 使用 `medium`，32 GB 左右才会使用 `large-v3`。如需固定模型，可在 `songs.csv` 中改为 `tiny`、`base`、`small`、`medium` 或 `large-v3`。
 
