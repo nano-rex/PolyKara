@@ -101,7 +101,12 @@ alignment = 9
 
 [charts]
 enabled_regions = ["my", "sg", "jp", "us"]
+
+[video]
+extend_intro = true
 ```
+
+When `extend_intro` is enabled, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
 
 For vocal pauses of at least 30 seconds, the final three seconds display `.`, `..`, and `...`, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
 

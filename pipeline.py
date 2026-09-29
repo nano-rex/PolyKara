@@ -139,7 +139,17 @@ def render(dry_run: bool, force: bool) -> None:
             print(f"SKIP {row['id']}: no word-level timing; no output rendered")
             continue
         subtitle_filter = str(subtitle).replace("\\", "/").replace(":", "\\:")
-        run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", f"ass={subtitle_filter}", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
+        ass_text = subtitle.read_text(encoding="utf-8")
+        padding = 0
+        for line in ass_text.splitlines():
+            if line.startswith("; PolyKaraIntroPaddingMs:"):
+                padding = int(line.rsplit(":", 1)[1].strip())
+                break
+        if padding:
+            filter_graph = f"[0:v]tpad=start_mode=clone:start_duration={padding / 1000:g},ass={subtitle_filter}[v];[0:a]adelay={padding}:all=1[a]"
+            run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-filter_complex", filter_graph, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
+        else:
+            run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", f"ass={subtitle_filter}", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
 
 
 def cleanup(dry_run: bool, drop_source: bool) -> None:

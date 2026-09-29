@@ -28,7 +28,7 @@ SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*"
 
 
 DEFAULT_CONFIG = {
-    "video": {"play_res_x": 1920, "play_res_y": 1080},
+    "video": {"play_res_x": 1920, "play_res_y": 1080, "extend_intro": True},
     "title": {"enabled": True, "text": "{title}  |  {artist}", "font": "Arial", "size": 42, "color": "&H00FFFFFF", "horizontal": "center", "vertical": "top", "margin_l": 40, "margin_r": 40, "margin_v": 40, "start_ms": 0, "duration_ms": 6000, "fade_in_ms": 300, "fade_out_ms": 300, "bold": True, "italic": False, "outline": 2, "shadow": 1},
     "credit": {"enabled": True, "text": "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}", "font": "Arial", "size": 28, "color": "&H00FFFFFF", "horizontal": "center", "vertical": "bottom", "margin_l": 40, "margin_r": 40, "margin_v": 70, "start_ms": 0, "duration_ms": 6000, "fade_in_ms": 300, "fade_out_ms": 300, "bold": False, "italic": False, "outline": 2, "shadow": 1},
     "lyric": {"font": "Arial", "size": 58, "color": "&H00FF0000", "secondary_color": "&H00FFFFFF", "outline_color": "&H80000000", "back_color": "&H50000000", "alignment": 2, "margin_l": 80, "margin_r": 80, "margin_v": 150, "bold": True, "italic": False, "outline": 3, "shadow": 1},

@@ -21,6 +21,19 @@ def alignment(values: dict) -> int:
     return vertical + horizontal + 1
 
 
+def intro_padding_ms(entries) -> int:
+    config = load_config()
+    if not config["video"].get("extend_intro", True) or not entries:
+        return 0
+    first_lyric = min(start for start, _, _, _ in entries)
+    card_end = 0
+    for name in ("title", "credit"):
+        values = config[name]
+        if values.get("enabled", True):
+            card_end = max(card_end, int(values.get("start_ms", 0)) + max(0, int(values.get("duration_ms", 6000))))
+    return max(0, card_end - first_lyric)
+
+
 def ass(row: dict[str, str], entries) -> str:
     config = load_config()
     video, title_style = config["video"], config["title"]
@@ -45,7 +58,7 @@ def ass(row: dict[str, str], entries) -> str:
     def card_event(style_name: str, values: dict, text: str) -> str | None:
         start = max(0, int(values.get("start_ms", 0)))
         requested_end = start + max(0, int(values.get("duration_ms", 6000)))
-        end = min(requested_end, first_lyric) if first_lyric > start else requested_end
+        end = requested_end
         if end <= start:
             return None
         fade_in = min(max(0, int(values.get("fade_in_ms", 0))), end - start)
@@ -62,6 +75,8 @@ def ass(row: dict[str, str], entries) -> str:
             out.append(event)
     if watermark_style.get("enabled", False) and watermark_style.get("text", ""):
         out.append(f"Dialogue: 1,0:00:00.00,9:59:59.99,Watermark,,0,0,0,,{esc(str(watermark_style['text']))}")
+    intro_padding = intro_padding_ms(entries)
+    out.insert(1, f"; PolyKaraIntroPaddingMs: {intro_padding}")
     speakers = []
     for _, _, text, _ in entries:
         speaker, _ = split_speaker(text)
@@ -72,6 +87,8 @@ def ass(row: dict[str, str], entries) -> str:
     slots = {speaker.casefold(): SPEAKER_PALETTE[index] for index, speaker in enumerate(speakers)}
     previous_end = 0
     for start, end, text, words in entries:
+        start += intro_padding
+        end += intro_padding
         speaker, lyric_text = split_speaker(text)
         if start - previous_end >= LONG_PAUSE_MS:
             for count in range(1, 4):
