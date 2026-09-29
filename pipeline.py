@@ -170,6 +170,10 @@ def external_lyrics_path(row: dict[str, str]) -> Path:
     return EXTERNAL_LYRICS / f"{row['id']}.lrc"
 
 
+def external_webpage_path(row: dict[str, str]) -> Path:
+    return EXTERNAL_LYRICS / f"{row['id']}.webpage.txt"
+
+
 def fetch_external_lyrics(row: dict[str, str]) -> Path | None:
     """Fetch timed lyrics and accept them only after metadata/text validation."""
     output = external_lyrics_path(row)
@@ -390,6 +394,27 @@ def apply_word_timing(entries: list[Entry], path: Path) -> list[Entry]:
     return result
 
 
+def plain_lyrics_entries(path: Path, timing_path: Path) -> list[Entry]:
+    """Give plain webpage lyrics line boundaries from recognized word timings."""
+    data = json.loads(timing_path.read_text(encoding="utf-8"))
+    timed_words = []
+    for segment in data.get("segments", []):
+        for word in segment.get("words", segment.get("word_segments", [])):
+            if word.get("start") is not None and word.get("end") is not None:
+                timed_words.append((int(float(word["start"]) * 1000), int(float(word["end"]) * 1000)))
+    lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    result = []
+    cursor = 0
+    for line in lines:
+        count = max(1, len(tokenise(line)))
+        selected = timed_words[cursor:cursor + count]
+        if not selected:
+            break
+        result.append((selected[0][0], max(selected[0][0] + 300, selected[-1][1]), line, []))
+        cursor += len(selected)
+    return result
+
+
 def ms(match: re.Match[str]) -> int:
     fraction = (match.group(3) or "0")
     fraction = int((fraction + "00")[:2]) * 10
@@ -538,22 +563,29 @@ def lyrics(dry_run: bool) -> None:
                 entries = lrc(path)
                 source_label = "validated external lyrics"
             else:
-                raw = row.get("lyrics_file", "").strip()
-                if not raw:
-                    print(f"SKIP {row['id']}: no downloaded subtitle, external lyrics, or lyrics_file")
-                    continue
-                path = Path(raw)
-                if not path.is_absolute():
-                    path = ROOT / path
-                if not path.exists():
-                    raise SystemExit(f"Lyrics file not found: {path}")
-                if path.suffix.lower() == ".lrc":
-                    entries = lrc(path)
-                elif path.suffix.lower() in {".srt", ".vtt"}:
-                    entries = timed_subtitle(path)
+                page_path = external_webpage_path(row)
+                page_timing = word_json(row)
+                if page_path.exists() and page_timing is not None:
+                    path = page_path
+                    entries = plain_lyrics_entries(path, page_timing)
+                    source_label = "extracted webpage lyrics"
                 else:
-                    raise SystemExit(f"Expected .lrc, .srt, or .vtt: {path}")
-                source_label = "manifest lyrics_file"
+                    raw = row.get("lyrics_file", "").strip()
+                    if not raw:
+                        print(f"SKIP {row['id']}: no downloaded subtitle, external lyrics, or lyrics_file")
+                        continue
+                    path = Path(raw)
+                    if not path.is_absolute():
+                        path = ROOT / path
+                    if not path.exists():
+                        raise SystemExit(f"Lyrics file not found: {path}")
+                    if path.suffix.lower() == ".lrc":
+                        entries = lrc(path)
+                    elif path.suffix.lower() in {".srt", ".vtt"}:
+                        entries = timed_subtitle(path)
+                    else:
+                        raise SystemExit(f"Expected .lrc, .srt, or .vtt: {path}")
+                    source_label = "manifest lyrics_file"
         if not entries:
             raise SystemExit(f"No timed lines found in {path}")
         timing_path = word_json(row)
