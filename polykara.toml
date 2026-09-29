@@ -10,10 +10,19 @@ text = "{title}  |  {artist}"
 font = "Arial"
 size = 42
 color = "&H00FFFFFF"
-alignment = 8
+horizontal = "center"
+vertical = "top"
 margin_l = 40
 margin_r = 40
 margin_v = 40
+start_ms = 0
+duration_ms = 6000
+fade_in_ms = 300
+fade_out_ms = 300
+bold = true
+italic = false
+outline = 2
+shadow = 1
 
 [credit]
 enabled = true
@@ -21,10 +30,19 @@ text = "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}"
 font = "Arial"
 size = 28
 color = "&H00FFFFFF"
-alignment = 2
+horizontal = "center"
+vertical = "bottom"
 margin_l = 40
 margin_r = 40
 margin_v = 70
+start_ms = 0
+duration_ms = 6000
+fade_in_ms = 300
+fade_out_ms = 300
+bold = false
+italic = false
+outline = 2
+shadow = 1
 
 [lyric]
 font = "Arial"

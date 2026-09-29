@@ -81,6 +81,19 @@ font = "Noto Sans CJK SC"
 size = 60
 color = "&H00FF0000"
 
+[title]
+text = "{title} — {artist}"
+horizontal = "center"
+vertical = "middle"
+duration_ms = 5000
+fade_in_ms = 500
+fade_out_ms = 500
+
+[credit]
+text = "Edited by {producer}"
+horizontal = "center"
+vertical = "bottom"
+
 [watermark]
 enabled = true
 text = "My Karaoke Studio"
