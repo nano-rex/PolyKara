@@ -11,6 +11,7 @@ import subprocess
 import sys
 import os
 from difflib import SequenceMatcher
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -97,7 +98,7 @@ def download(dry_run: bool) -> None:
 
 
 def lyric_sources(row: dict[str, str]) -> list[str]:
-    configured = row.get("lyric_sources", "lrclib,lyrics.ovh").strip()
+    configured = row.get("lyric_sources", "lrclib,lyrics.ovh,webpage").strip()
     return [item.strip().lower() for item in configured.split(",") if item.strip()]
 
 
@@ -105,6 +106,57 @@ def fetch_json(url: str) -> dict:
     request = Request(url, headers={"User-Agent": "PolyKara/1.0 (+https://github.com/nano-rex/PolyKara)"})
     with urlopen(request, timeout=15) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def fetch_html(url: str) -> str:
+    request = Request(url, headers={"User-Agent": "PolyKara/1.0 (+https://github.com/nano-rex/PolyKara)"})
+    with urlopen(request, timeout=15) as response:
+        return response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+
+
+class LyricsPageParser(HTMLParser):
+    """Extract known lyrics containers without downloading page assets."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.active_depth: int | None = None
+        self.current: list[str] = []
+        self.candidates: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.depth += 1
+        attributes = dict(attrs)
+        class_name = attributes.get("class") or ""
+        is_container = (
+            attributes.get("data-lyrics-container") == "true"
+            or "Lyrics__Container" in class_name
+            or "song_body-lyrics" in class_name
+        )
+        if is_container and self.active_depth is None:
+            self.active_depth = self.depth
+            self.current = []
+        elif self.active_depth is not None and tag in {"br", "div", "p", "section"}:
+            self.current.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.active_depth is not None and self.depth == self.active_depth:
+            text = re.sub(r"\n{3,}", "\n\n", "".join(self.current)).strip()
+            if text:
+                self.candidates.append(text)
+            self.active_depth = None
+            self.current = []
+        self.depth = max(0, self.depth - 1)
+
+    def handle_data(self, data: str) -> None:
+        if self.active_depth is not None:
+            self.current.append(data)
+
+
+def extract_lyrics_page(html: str) -> str:
+    parser = LyricsPageParser()
+    parser.feed(html)
+    return max(parser.candidates, key=len, default="")
 
 
 def lyric_text(value: str) -> str:
@@ -140,6 +192,13 @@ def fetch_external_lyrics(row: dict[str, str]) -> Path | None:
                 result = fetch_json(f"https://api.lyrics.ovh/v1/{quote(artist, safe='')}/{quote(title, safe='')}")
                 if result.get("lyrics"):
                     plain_candidates.append(str(result["lyrics"]))
+            elif source_name == "webpage":
+                for page_url in [item.strip() for item in row.get("lyric_pages", "").split("|") if item.strip()]:
+                    extracted = extract_lyrics_page(fetch_html(page_url))
+                    if extracted:
+                        plain_candidates.append(extracted)
+                        (EXTERNAL_LYRICS / f"{row['id']}.webpage.txt").write_text(extracted + "\n", encoding="utf-8")
+                        print(f"{row['id']}: extracted lyrics section from webpage")
         except Exception as exc:
             print(f"{row['id']}: lyric source {source_name} unavailable ({exc})")
     synced = str(lrclib.get("syncedLyrics") or "").strip()
