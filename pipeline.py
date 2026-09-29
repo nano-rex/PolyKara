@@ -24,6 +24,8 @@ DOWNLOAD_ARCHIVE = WORK / "download-archive.txt"
 TIMECODE = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
 WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
 Entry = tuple[int, int, str, list[tuple[int, int, str]]]
+LONG_PAUSE_MS = 30_000
+DOT_INTERVAL_MS = 1_000
 
 
 def run(cmd: list[str], dry_run: bool = False) -> None:
@@ -528,16 +530,20 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
         "Style: Header,Arial,42,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,8,40,40,40,1",
         "Style: Credit,Arial,28,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,0,0,0,0,100,100,0,0,1,2,1,2,40,40,70,1",
         "Style: Lyric,Arial,58,&H0000FFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,150,1", "",
-        "Style: Prompt,Arial,44,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,2,80,80,150,1", "",
+        "Style: Prompt,Arial,44,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,1,80,80,220,1", "",
         "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         f"Dialogue: 0,0:00:00.00,0:00:06.00,Header,,0,0,40,,{title}",
         f"Dialogue: 0,0:00:00.00,0:00:06.00,Credit,,0,0,70,,{credit}",
     ]
+    previous_end = 0
     for start, end, text, words in entries:
-        prompt_ms = max(0, int(row.get("prompt_ms", "1000") or "1000"))
-        prompt_start = max(0, start - prompt_ms)
-        if prompt_start < start:
-            out.append(f"Dialogue: 2,{at(prompt_start)},{at(start)},Prompt,,0,0,150,,...")
+        # Long vocal pauses get a three-step ellipsis countdown immediately
+        # before the next lyric: ., .., ...; normal lyric gaps stay clean.
+        if start - previous_end >= LONG_PAUSE_MS:
+            for count in range(1, 4):
+                dot_start = start - (4 - count) * DOT_INTERVAL_MS
+                dot_end = dot_start + DOT_INTERVAL_MS
+                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_end)},Prompt,,0,0,220,,{'.' * count}")
         if words:
             karaoke = []
             for word_start, word_end, word in words:
@@ -547,6 +553,7 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
         else:
             visible = esc(text)
         out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
+        previous_end = max(previous_end, end)
     return "\n".join(out) + "\n"
 
 
