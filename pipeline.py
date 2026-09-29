@@ -174,7 +174,7 @@ def main() -> int:
     parser.add_argument("--reprocess", action="store_true", help="render songs again even when the final MP4 already exists")
     parser.add_argument("--drop-source", action="store_true")
     parser.add_argument("--trending", action="store_true", help="show regional YouTube Top Songs and add selected entries to songs.csv")
-    parser.add_argument("--regions", default="", help="comma-separated chart region codes: my,tw,hk,jp,kr,in,us,gb")
+    parser.add_argument("--regions", default="", help="comma-separated chart region codes: my,id,au,tw,hk,jp,kr,in,cn,us,gb")
     args = parser.parse_args()
     if args.command == "check": check()
     elif args.command == "download": download(args.dry_run, args.trending, args.regions)

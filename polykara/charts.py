@@ -10,11 +10,14 @@ from .config import MANIFEST
 
 REGIONS = {
     "my": ("Malaysia", "ms", "en.*"),
+    "id": ("Indonesia", "id", "id,en.*"),
+    "au": ("Australia", "en", "en.*"),
     "tw": ("Taiwan", "zh", "zh.*,en.*"),
     "hk": ("Hong Kong", "yue", "yue,zh.*,en.*"),
     "jp": ("Japan", "ja", "ja,en.*"),
     "kr": ("South Korea", "ko", "ko,en.*"),
     "in": ("India", "hi", "hi,en.*"),
+    "cn": ("China", "zh", "zh.*,en.*"),
     "us": ("USA", "en", "en.*"),
     "gb": ("UK", "en", "en.*"),
 }

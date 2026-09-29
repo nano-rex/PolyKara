@@ -33,7 +33,7 @@
    python3 pipeline.py download
    ```
 
-   也可以从 [YouTube 官方每周 Top Songs 区域榜单](https://support.google.com/youtube/answer/9014376) 中挑选歌曲加入 `songs.csv`。支持 Malaysia、Taiwan、Hong Kong、Japan、South Korea、India、USA 和 UK；默认显示每个地区前 10 名：
+   也可以从 [YouTube 官方每周 Top Songs 区域榜单](https://support.google.com/youtube/answer/9014376) 中挑选歌曲加入 `songs.csv`。支持 Malaysia、Indonesia、Australia、Taiwan、Hong Kong、Japan、South Korea、India、China、USA 和 UK；默认显示每个地区前 10 名：
 
    ```bash
    python3 pipeline.py download --trending
@@ -42,7 +42,7 @@
    只查看指定地区：
 
    ```bash
-   python3 pipeline.py download --trending --regions my,jp,kr
+   python3 pipeline.py download --trending --regions my,id,au,jp,kr,cn
    ```
 
    命令会列出候选歌曲，输入编号（例如 `1,4,12`）或 `a` 全选。确认后只会追加不重复的歌曲资料，不会立即下载媒体；随后运行普通的 `download` 或完整的 `process`。
