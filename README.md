@@ -96,6 +96,14 @@
 
    只有当下一句歌词前有至少 30 秒无人声空档时，才会显示长暂停提示：在最后 3 秒依次显示 `.`, `..`, `...`，每个状态持续 1 秒。提示位于歌词上方并左对齐；普通歌词间隔不会显示点号。
 
+   歌词行可选用 `[singer:A]`、`[singer:B]`、`[singer:duet]` 或 `[singer:backing]` 标记演唱者。未标记歌词默认使用蓝色；A、B、合唱和伴唱会自动使用不同颜色，同时保留逐词高亮。例如：
+
+   ```text
+   [00:12.00][singer:A]First singer line
+   [00:18.00][singer:B]Second singer line
+   [00:24.00][singer:duet]Together line
+   ```
+
 10. 查看处理状态：
 
    ```bash

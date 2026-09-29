@@ -26,6 +26,7 @@ WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
 Entry = tuple[int, int, str, list[tuple[int, int, str]]]
 LONG_PAUSE_MS = 30_000
 DOT_INTERVAL_MS = 1_000
+SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
 
 
 def run(cmd: list[str], dry_run: bool = False) -> None:
@@ -360,6 +361,11 @@ def tokenise(text: str) -> list[str]:
     return text.split()
 
 
+def split_speaker(text: str) -> tuple[str, str]:
+    match = SPEAKER_TAG.match(text)
+    return (match.group(1).strip(), text[match.end():].strip()) if match else ("", text.strip())
+
+
 def apply_word_timing(entries: list[Entry], path: Path) -> list[Entry]:
     data = json.loads(path.read_text(encoding="utf-8"))
     timed_words = []
@@ -375,11 +381,12 @@ def apply_word_timing(entries: list[Entry], path: Path) -> list[Entry]:
     result: list[Entry] = []
     cursor = 0
     for start, end, text, _ in entries:
+        speaker, lyric_text = split_speaker(text)
         selected = [item for item in timed_words if item[1] >= start and item[0] <= end]
         if not selected:
             selected = timed_words[cursor:cursor + max(1, len(tokenise(text)))]
         cursor = max(cursor, timed_words.index(selected[-1]) + 1) if selected else cursor
-        tokens = tokenise(text)
+        tokens = tokenise(lyric_text)
         if not selected or not tokens:
             result.append((start, end, text, []))
             continue
@@ -428,10 +435,12 @@ def lrc(path: Path) -> list[Entry]:
     for line in path.read_text(encoding="utf-8-sig").splitlines():
         marks = list(TIMECODE.finditer(line))
         text = line[marks[-1].end():].strip() if marks else ""
-        if text:
-            word_marks = list(WORDCODE.finditer(text))
-            words = [(ms_word.start(), ms_word.end(), text[ms_word.end():word_marks[i + 1].start() if i + 1 < len(word_marks) else len(text)].strip()) for i, ms_word in enumerate(word_marks)]
-            items.extend((ms(mark), text, words) for mark in marks)
+        speaker, lyric_text = split_speaker(text)
+        if lyric_text:
+            word_marks = list(WORDCODE.finditer(lyric_text))
+            words = [(ms_word.start(), ms_word.end(), lyric_text[ms_word.end():word_marks[i + 1].start() if i + 1 < len(word_marks) else len(lyric_text)].strip()) for i, ms_word in enumerate(word_marks)]
+            tagged_text = f"[speaker:{speaker}] {lyric_text}" if speaker else lyric_text
+            items.extend((ms(mark), tagged_text, words) for mark in marks)
     items.sort()
     result = []
     for i, (start, text, words) in enumerate(items):
@@ -487,8 +496,10 @@ def timed_subtitle(path: Path) -> list[Entry]:
             text_lines.append(re.sub(r"<[^>]+>|\{[^}]+\}", "", lines[index]).strip())
             index += 1
         text = " ".join(part for part in text_lines if part)
-        if text:
-            result.append((start, max(start + 300, end), text, []))
+        speaker, lyric_text = split_speaker(text)
+        if lyric_text:
+            tagged_text = f"[speaker:{speaker}] {lyric_text}" if speaker else lyric_text
+            result.append((start, max(start + 300, end), tagged_text, []))
         index += 1
     return result
 
@@ -529,7 +540,7 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
         "[V4+ Styles]", "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         "Style: Header,Arial,42,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,8,40,40,40,1",
         "Style: Credit,Arial,28,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,0,0,0,0,100,100,0,0,1,2,1,2,40,40,70,1",
-        "Style: Lyric,Arial,58,&H0000FFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,150,1", "",
+        "Style: Lyric,Arial,58,&H00FF0000,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,150,1", "",
         "Style: Prompt,Arial,44,&H00FFFFFF,&H00FFFFFF,&H80000000,&H50000000,1,0,0,0,100,100,0,0,1,2,1,1,80,80,220,1", "",
         "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         f"Dialogue: 0,0:00:00.00,0:00:06.00,Header,,0,0,40,,{title}",
@@ -537,6 +548,7 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
     ]
     previous_end = 0
     for start, end, text, words in entries:
+        speaker, lyric_text = split_speaker(text)
         # Long vocal pauses get a three-step ellipsis countdown immediately
         # before the next lyric: ., .., ...; normal lyric gaps stay clean.
         if start - previous_end >= LONG_PAUSE_MS:
@@ -551,7 +563,16 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
                 karaoke.append(f"{{\\k{duration}}}{esc(word)}")
             visible = " ".join(karaoke)
         else:
-            visible = esc(text)
+            visible = esc(lyric_text)
+        if speaker:
+            colors = {
+                "a": "&H00FF0000", "singer a": "&H00FF0000", "1": "&H00FF0000",
+                "b": "&H00FF00FF", "singer b": "&H00FF00FF", "2": "&H00FF00FF",
+                "duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF",
+                "backing": "&H0000FF00",
+            }
+            color = colors.get(speaker.casefold(), "&H00FF00FF")
+            visible = f"{{\\c{color}}}{visible}"
         out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
         previous_end = max(previous_end, end)
     return "\n".join(out) + "\n"
