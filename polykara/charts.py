@@ -54,8 +54,8 @@ def slug(value: str) -> str:
     return value or "song"
 
 
-def add_selected(regions: list[str]) -> None:
-    if not sys_stdin_tty():
+def add_selected(regions: list[str], pick: bool = False) -> None:
+    if pick and not sys_stdin_tty():
         raise SystemExit("Trending selection requires an interactive terminal; rerun with a terminal attached")
     candidates = []
     for region in regions:
@@ -72,11 +72,15 @@ def add_selected(regions: list[str]) -> None:
     if not candidates:
         print("No chart candidates found")
         return
-    answer = input("\nSelect numbers to add (comma-separated), 'a' for all, or Enter to cancel: ").strip().lower()
-    if not answer:
-        print("No songs added")
-        return
-    selected = set(range(1, len(candidates) + 1)) if answer == "a" else {int(value) for value in answer.split(",") if value.strip().isdigit()}
+    if pick:
+        answer = input("\nSelect numbers to add (comma-separated), 'a' for all, or Enter to cancel: ").strip().lower()
+        if not answer:
+            print("No songs added")
+            return
+        selected = set(range(1, len(candidates) + 1)) if answer == "a" else {int(value) for value in answer.split(",") if value.strip().isdigit()}
+    else:
+        print("\nAutomatic mode: adding all listed chart songs")
+        selected = set(range(1, len(candidates) + 1))
     selected = {value for value in selected if 1 <= value <= len(candidates)}
     if not selected:
         print("No valid selections")

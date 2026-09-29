@@ -18,10 +18,10 @@ from polykara.providers import external_lyrics_path, external_webpage_path, fetc
 from polykara.subtitle import apply_word_timing, downloaded_subtitle, lrc, plain_lyrics_entries, timed_subtitle, word_json
 
 
-def download(dry_run: bool, trending: bool = False, regions: str = "") -> None:
+def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False) -> None:
     if trending:
         selected_regions = [item.strip().lower() for item in regions.split(",") if item.strip()] if regions else list(REGIONS)
-        add_selected(selected_regions)
+        add_selected(selected_regions, pick)
         return
     require_current_ytdlp()
     for directory in (RAW, SUBTITLES, METADATA, EXTERNAL_LYRICS):
@@ -174,10 +174,11 @@ def main() -> int:
     parser.add_argument("--reprocess", action="store_true", help="render songs again even when the final MP4 already exists")
     parser.add_argument("--drop-source", action="store_true")
     parser.add_argument("--trending", action="store_true", help="show regional YouTube Top Songs and add selected entries to songs.csv")
+    parser.add_argument("--pick", action="store_true", help="interactively choose chart songs; trending mode otherwise adds all candidates")
     parser.add_argument("--regions", default="", help="comma-separated chart region codes: my,id,au,ca,sg,tw,hk,jp,kr,in,cn,us,gb")
     args = parser.parse_args()
     if args.command == "check": check()
-    elif args.command == "download": download(args.dry_run, args.trending, args.regions)
+    elif args.command == "download": download(args.dry_run, args.trending, args.regions, args.pick)
     elif args.command == "normalize": normalize(args.dry_run)
     elif args.command == "align": align(rows(), args.dry_run)
     elif args.command == "lyrics": lyrics(args.dry_run)

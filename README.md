@@ -45,7 +45,11 @@
    python3 pipeline.py download --trending --regions my,id,au,jp,kr,cn
    ```
 
-   命令会列出候选歌曲，输入编号（例如 `1,4,12`）或 `a` 全选。确认后只会追加不重复的歌曲资料，不会立即下载媒体；随后运行普通的 `download` 或完整的 `process`。
+   默认会自动追加所有地区的前 10 名，且只追加不重复的歌曲资料；不会立即下载媒体。需要手动选择时使用 `--pick`，然后输入编号（例如 `1,4,12`）或 `a` 全选。添加后运行普通的 `download` 或完整的 `process`。
+
+   ```bash
+   python3 pipeline.py download --trending --pick
+   ```
 
 5. 提取统一的 48 kHz FLAC，供后续歌词对轴使用。FLAC 比 PCM WAV 更省空间且无损：
 
