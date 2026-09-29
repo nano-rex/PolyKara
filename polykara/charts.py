@@ -12,6 +12,8 @@ REGIONS = {
     "my": ("Malaysia", "ms", "en.*"),
     "id": ("Indonesia", "id", "id,en.*"),
     "au": ("Australia", "en", "en.*"),
+    "ca": ("Canada", "en", "en.*"),
+    "sg": ("Singapore", "en", "en.*,zh.*,ms.*"),
     "tw": ("Taiwan", "zh", "zh.*,en.*"),
     "hk": ("Hong Kong", "yue", "yue,zh.*,en.*"),
     "jp": ("Japan", "ja", "ja,en.*"),
