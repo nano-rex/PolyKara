@@ -4,6 +4,8 @@
 
 这个目录实现 CLI 批处理和 GUI 手工修正的两层流程。ASS 是可编辑项目文件；KAX/KAS 仍由 Sayatoo 自己保存。
 
+代码按职责拆分在 `polykara/`：`config.py` 管理路径和共享常量，`manifest.py` 验证歌曲和工具，`providers.py` 处理外部歌词/网页，`alignment.py` 处理 WhisperX/Faster-Whisper，`subtitle.py` 解析和应用时间轴，`ass.py` 生成卡拉 OK ASS。`pipeline.py` 保持稳定的 CLI 入口。
+
 ## 使用方式
 
 1. 编辑 `songs.csv`。填写 `id`、`url`、歌曲资料和 `lyrics_file`。`id` 只能使用英文字母、数字、短横线或下划线。
