@@ -26,6 +26,24 @@ REGIONS = {
 CHART_ENDPOINT = "https://charts.youtube.com/youtubei/v1/browse?alt=json&key=AIzaSyCzEW7JUJdSql0-2V4tHUb6laYm4iAE_dM"
 
 
+def _find_track_views(value: object) -> list[dict]:
+    """Find chart rows without depending on YouTube's private nesting layout."""
+    if isinstance(value, dict):
+        track_views = value.get("trackViews")
+        if isinstance(track_views, list):
+            return [item for item in track_views if isinstance(item, dict)]
+        for child in value.values():
+            found = _find_track_views(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_track_views(child)
+            if found:
+                return found
+    return []
+
+
 def chart_rows(region: str) -> list[dict[str, str]]:
     if region not in REGIONS:
         raise ValueError(f"Unknown region {region}; choose from {', '.join(REGIONS)}")
@@ -37,13 +55,19 @@ def chart_rows(region: str) -> list[dict[str, str]]:
     request = Request(CHART_ENDPOINT, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "User-Agent": "PolyKara/1.0"}, method="POST")
     with urlopen(request, timeout=20) as response:
         data = json.loads(response.read().decode("utf-8"))
-    section = data["contents"]["sectionListRenderer"]["contents"][0]["musicAnalyticsSectionRenderer"]
-    items = section["trackTypes"][0]["trackViews"][:10]
+    items = _find_track_views(data)[:10]
+    if not items:
+        top_keys = ", ".join(sorted(data)) if isinstance(data, dict) else type(data).__name__
+        raise ValueError(f"YouTube chart response has no trackViews (top-level: {top_keys})")
     result = []
     for rank, item in enumerate(items, 1):
-        video_id = item.get("encryptedVideoId") or item.get("id")
+        video_id = item.get("encryptedVideoId") or item.get("id") or item.get("videoId")
         title = item.get("title") or item.get("name") or ""
-        artist = ", ".join(artist.get("name", "") for artist in item.get("artists", []) if artist.get("name"))
+        artists = item.get("artists", [])
+        if isinstance(artists, str):
+            artist = artists
+        else:
+            artist = ", ".join(artist.get("name", "") for artist in artists if isinstance(artist, dict) and artist.get("name"))
         if video_id and title:
             result.append({"rank": str(rank), "title": title, "artist": artist or "Unknown Artist", "url": f"https://www.youtube.com/watch?v={video_id}"})
     return result
