@@ -383,7 +383,27 @@ def edit(row: dict[str, str]) -> None:
         print(f"Open this file in Aegisub or Subtitle Edit: {edited}")
 
 
-def render(dry_run: bool) -> None:
+def confirm_reprocess(sid: str, output: Path, force: bool, dry_run: bool) -> bool:
+    """Decide whether an existing final output should be rendered again."""
+    if not output.exists():
+        return True
+    if force:
+        print(f"REPROCESS {sid}: --reprocess was supplied")
+        return True
+    if not sys.stdin.isatty():
+        print(f"SKIP {sid}: output already exists (non-interactive run)")
+        return False
+    try:
+        answer = input(f"{sid} is already processed. Process again? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        print(f"SKIP {sid}: output already exists")
+        return False
+    return True
+
+
+def render(dry_run: bool, force: bool) -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     song_rows = rows()
     if not dry_run:
@@ -397,6 +417,9 @@ def render(dry_run: bool) -> None:
             print("Some songs have no word timing; starting automatic alignment where possible")
             lyrics(False)
     for row in song_rows:
+        output = OUTPUT / f"{row['id']}.mp4"
+        if not confirm_reprocess(row["id"], output, force, dry_run):
+            continue
         subtitle = edited_path(row["id"]) if edited_path(row["id"]).exists() else ASS / f"{row['id']}.auto.ass"
         if not subtitle.exists():
             raise SystemExit(f"Missing ASS for {row['id']}; run lyrics first")
@@ -406,7 +429,7 @@ def render(dry_run: bool) -> None:
             continue
         subtitle_filter_path = str(subtitle).replace("\\", "/").replace(":", "\\:")
         vf = f"ass={subtitle_filter_path}"
-        run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(OUTPUT / f"{row['id']}.mp4")], dry_run)
+        run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
 
 
 def qa() -> None:
@@ -420,6 +443,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "cleanup", "qa"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--reprocess", action="store_true", help="render songs again even when the final MP4 already exists")
     parser.add_argument("--drop-source", action="store_true", help="also remove raw source media after rendered output and edited ASS exist")
     args = parser.parse_args()
     if args.command == "check": check()
@@ -429,7 +453,7 @@ def main() -> int:
     elif args.command == "lyrics": lyrics(args.dry_run)
     elif args.command == "edit":
         for row in rows(): edit(row)
-    elif args.command == "render": render(args.dry_run)
+    elif args.command == "render": render(args.dry_run, args.reprocess)
     elif args.command == "cleanup": cleanup(args.dry_run, args.drop_source)
     else: qa()
     return 0

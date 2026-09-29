@@ -68,6 +68,14 @@
    python3 pipeline.py render
    ```
 
+   If a final MP4 already exists, the command asks whether that song should be
+   rendered again. Existing outputs are skipped automatically in non-interactive
+   runs. Use `--reprocess` to render every song again without prompting:
+
+   ```bash
+   python3 pipeline.py render --reprocess
+   ```
+
    正式渲染要求 ASS 内含 `\\k` 逐词/逐音节时间标签。若 word timing 不存在，`lyrics` 会自动启动 WhisperX 对轴；如果 WhisperX 未安装，流程会明确失败，不会生成假 karaoke 高亮。
 
    增强 LRC 的格式示例：
