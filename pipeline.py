@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -107,11 +108,41 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
         raise RuntimeError("language is missing")
     if not audio.exists():
         raise RuntimeError(f"normalized audio is missing: {audio}")
-    # small is a safer CPU/WSL default; large-v3 can exhaust a typical WSL VM
-    # before Python can report a normal subprocess error. Override per song with
-    # align_model in songs.csv when the machine has sufficient memory.
-    model = row.get("align_model", "small") or "small"
+    model = alignment_model(row)
+    print(f"{row['id']}: using WhisperX model {model}")
     run(["whisperx", str(audio), "--model", model, "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+
+
+def total_memory_bytes() -> int:
+    """Return host/WSL memory without requiring an optional Python package."""
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+
+
+def alignment_model(row: dict[str, str]) -> str:
+    """Choose a practical WhisperX model while reserving half of system RAM."""
+    configured = row.get("align_model", "auto").strip().lower() or "auto"
+    if configured != "auto":
+        return configured
+    total_gib = total_memory_bytes() / (1024 ** 3)
+    budget_gib = total_gib / 2
+    if budget_gib >= 12:
+        model = "large-v3"
+    elif budget_gib >= 8:
+        model = "medium"
+    elif budget_gib >= 4:
+        model = "small"
+    elif budget_gib >= 2:
+        model = "base"
+    else:
+        model = "tiny"
+    print(f"{row['id']}: detected {total_gib:.1f} GiB RAM; reserving {budget_gib:.1f} GiB for alignment -> {model}")
+    return model
 
 
 def align(dry_run: bool) -> None:

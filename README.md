@@ -46,7 +46,7 @@
 
    结果保存在 `work/align/<id>.json`。WhisperX 需要较大的模型和足够的内存；生产环境应先按语言抽样验证，再批量处理。
 
-   PolyKara 默认使用 `small` 模型，以避免在 WSL/CPU 环境中因内存不足导致整个 WSL 实例被终止。可在 `songs.csv` 的 `align_model` 列中按歌曲改为 `medium` 或 `large-v3`，但这些模型需要更多内存。
+   `align_model=auto` 会检测系统总内存，并预留一半给操作系统和其他程序：8 GB 总内存会得到约 4 GB 对齐预算并使用 `small`，16 GB 使用 `medium`，32 GB 左右才会使用 `large-v3`。如需固定模型，可在 `songs.csv` 中改为 `tiny`、`base`、`small`、`medium` 或 `large-v3`。
 
    下载阶段同时会保存 YouTube 提供的人工字幕和自动字幕到 `work/subtitles/`。用 `subtitle_langs` 控制语言，例如 `zh.*,yue,ja,ko,ta,en.*`；下载到的字幕优先于 `lyrics_file`。
 
