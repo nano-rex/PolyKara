@@ -107,7 +107,11 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
         raise RuntimeError("language is missing")
     if not audio.exists():
         raise RuntimeError(f"normalized audio is missing: {audio}")
-    run(["whisperx", str(audio), "--model", row.get("align_model", "large-v3") or "large-v3", "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+    # small is a safer CPU/WSL default; large-v3 can exhaust a typical WSL VM
+    # before Python can report a normal subprocess error. Override per song with
+    # align_model in songs.csv when the machine has sufficient memory.
+    model = row.get("align_model", "small") or "small"
+    run(["whisperx", str(audio), "--model", model, "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
 
 
 def align(dry_run: bool) -> None:

@@ -46,6 +46,8 @@
 
    结果保存在 `work/align/<id>.json`。WhisperX 需要较大的模型和足够的内存；生产环境应先按语言抽样验证，再批量处理。
 
+   PolyKara 默认使用 `small` 模型，以避免在 WSL/CPU 环境中因内存不足导致整个 WSL 实例被终止。可在 `songs.csv` 的 `align_model` 列中按歌曲改为 `medium` 或 `large-v3`，但这些模型需要更多内存。
+
    下载阶段同时会保存 YouTube 提供的人工字幕和自动字幕到 `work/subtitles/`。用 `subtitle_langs` 控制语言，例如 `zh.*,yue,ja,ko,ta,en.*`；下载到的字幕优先于 `lyrics_file`。
 
 7. 将匹配实际音频版本的带时间 LRC 放在 `lyrics_file` 指定位置，然后生成自动 ASS：
