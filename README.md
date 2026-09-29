@@ -81,6 +81,14 @@ font = "Noto Sans CJK SC"
 size = 60
 color = "&H00FF0000"
 
+[alignment]
+model = "auto"
+device = "auto"
+compute_type = "int8"
+reserve_fraction = 0.5
+small_min_budget_gib = 4
+cpu_threads = 0
+
 [title]
 text = "{title} — {artist}"
 horizontal = "center"
@@ -107,6 +115,8 @@ extend_intro = true
 ```
 
 When `extend_intro` is enabled, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
+
+Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_fraction = 0.5` means the model-selection budget is half of detected system RAM; it is a selection policy, not a hard operating-system memory limit.
 
 For vocal pauses of at least 30 seconds, the final three seconds display `.`, `..`, and `...`, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
 

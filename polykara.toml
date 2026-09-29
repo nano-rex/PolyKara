@@ -57,6 +57,33 @@ margin_l = 80
 margin_r = 80
 margin_v = 150
 
+[karaoke]
+# \kf performs a smooth left-to-right fill over each timed word.
+active_color = "&H00FF0000"
+inactive_color = "&H00FFFFFF"
+tag = "kf"
+
+[alignment]
+# auto reserves half of detected RAM and selects a model from the thresholds.
+# Set model to tiny/base/small/medium/large-v3 to disable automatic selection.
+model = "auto"
+device = "auto"
+compute_type = "int8"
+reserve_fraction = 0.5
+base_min_budget_gib = 2
+small_min_budget_gib = 4
+medium_min_budget_gib = 8
+large_min_budget_gib = 12
+cpu_threads = 0
+num_workers = 1
+
+[timing]
+long_pause_ms = 30000
+dot_interval_ms = 1000
+
+[singers]
+max = 16
+
 [prompt]
 font = "Arial"
 size = 44

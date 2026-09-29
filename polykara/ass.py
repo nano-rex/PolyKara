@@ -37,7 +37,10 @@ def intro_padding_ms(entries) -> int:
 def ass(row: dict[str, str], entries) -> str:
     config = load_config()
     video, title_style = config["video"], config["title"]
-    credit_style, lyric_style = config["credit"], config["lyric"]
+    credit_style, lyric_style = config["credit"], dict(config["lyric"])
+    karaoke_style = config.get("karaoke", {})
+    lyric_style["color"] = karaoke_style.get("active_color", lyric_style.get("color", "&H00FF0000"))
+    lyric_style["secondary_color"] = karaoke_style.get("inactive_color", lyric_style.get("secondary_color", "&H00FFFFFF"))
     prompt_style, watermark_style = config["prompt"], config["watermark"]
     def text_template(values: dict, fallback: str) -> str:
         try:
@@ -82,20 +85,27 @@ def ass(row: dict[str, str], entries) -> str:
         speaker, _ = split_speaker(text)
         if speaker and speaker.casefold() not in {item.casefold() for item in speakers}:
             speakers.append(speaker)
-    if len(speakers) > MAX_SINGERS:
-        raise ValueError(f"{row['id']} has {len(speakers)} singers; maximum is {MAX_SINGERS}")
+    max_singers = int(config.get("singers", {}).get("max", MAX_SINGERS))
+    if len(speakers) > max_singers:
+        raise ValueError(f"{row['id']} has {len(speakers)} singers; maximum is {max_singers}")
     slots = {speaker.casefold(): SPEAKER_PALETTE[index] for index, speaker in enumerate(speakers)}
+    timing = config.get("timing", {})
+    long_pause_ms = int(timing.get("long_pause_ms", LONG_PAUSE_MS))
+    dot_interval_ms = int(timing.get("dot_interval_ms", DOT_INTERVAL_MS))
+    karaoke_tag = str(karaoke_style.get("tag", "kf")).lower()
+    if karaoke_tag not in {"k", "kf"}:
+        raise ValueError("karaoke.tag must be 'k' or 'kf'")
     previous_end = 0
     for start, end, text, words in entries:
         start += intro_padding
         end += intro_padding
         speaker, lyric_text = split_speaker(text)
-        if start - previous_end >= LONG_PAUSE_MS:
+        if start - previous_end >= long_pause_ms:
             for count in range(1, 4):
-                dot_start = start - (4 - count) * DOT_INTERVAL_MS
-                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + DOT_INTERVAL_MS)},Prompt,,0,0,220,,{'.' * count}")
+                dot_start = start - (4 - count) * dot_interval_ms
+                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,220,,{'.' * count}")
         if words:
-            visible = " ".join(f"{{\\k{max(1, round((right - left) / 10))}}}{esc(word)}" for left, right, word in words)
+            visible = " ".join(f"{{\\{karaoke_tag}{max(1, round((right - left) / 10))}}}{esc(word)}" for left, right, word in words)
         else:
             visible = esc(lyric_text)
         if speaker:
