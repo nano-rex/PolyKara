@@ -26,6 +26,17 @@ WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
 Entry = tuple[int, int, str, list[tuple[int, int, str]]]
 LONG_PAUSE_MS = 30_000
 DOT_INTERVAL_MS = 1_000
+MAX_SINGERS = 8
+SPEAKER_PALETTE = (
+    "&H00FF0000",  # blue
+    "&H00FF00FF",  # magenta
+    "&H0000FF00",  # green
+    "&H0000A5FF",  # orange
+    "&H00FFFF00",  # cyan
+    "&H008080FF",  # pink
+    "&H0000FFFF",  # yellow
+    "&H00FF8000",  # purple
+)
 SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
 
 
@@ -546,6 +557,14 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
         f"Dialogue: 0,0:00:00.00,0:00:06.00,Header,,0,0,40,,{title}",
         f"Dialogue: 0,0:00:00.00,0:00:06.00,Credit,,0,0,70,,{credit}",
     ]
+    speakers = []
+    for _, _, text, _ in entries:
+        speaker, _ = split_speaker(text)
+        if speaker and speaker.casefold() not in {item.casefold() for item in speakers}:
+            speakers.append(speaker)
+    if len(speakers) > MAX_SINGERS:
+        raise ValueError(f"{row['id']} has {len(speakers)} singers; maximum is {MAX_SINGERS}")
+    speaker_slots = {speaker.casefold(): SPEAKER_PALETTE[index] for index, speaker in enumerate(speakers)}
     previous_end = 0
     for start, end, text, words in entries:
         speaker, lyric_text = split_speaker(text)
@@ -565,13 +584,11 @@ def ass(row: dict[str, str], entries: list[Entry]) -> str:
         else:
             visible = esc(lyric_text)
         if speaker:
-            colors = {
-                "a": "&H00FF0000", "singer a": "&H00FF0000", "1": "&H00FF0000",
-                "b": "&H00FF00FF", "singer b": "&H00FF00FF", "2": "&H00FF00FF",
+            semantic = {
                 "duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF",
                 "backing": "&H0000FF00",
             }
-            color = colors.get(speaker.casefold(), "&H00FF00FF")
+            color = semantic.get(speaker.casefold(), speaker_slots[speaker.casefold()])
             visible = f"{{\\c{color}}}{visible}"
         out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
         previous_end = max(previous_end, end)
