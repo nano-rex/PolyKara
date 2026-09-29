@@ -96,16 +96,31 @@ def normalize(dry_run: bool) -> None:
         run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vn", "-ac", "2", "-ar", "48000", "-c:a", "flac", str(AUDIO / f"{row['id']}.flac")], dry_run)
 
 
-def align(dry_run: bool) -> None:
-    """Run WhisperX and keep its word-level JSON as an editable intermediate."""
+def align_row(row: dict[str, str], dry_run: bool) -> None:
+    """Run WhisperX for one song and keep its word-level JSON intermediate."""
     if shutil.which("whisperx") is None:
-        raise SystemExit("WhisperX is required for automatic word timing. Install it with: pip install whisperx")
+        raise RuntimeError("WhisperX is not installed")
     ALIGN.mkdir(parents=True, exist_ok=True)
+    language = row.get("language", "").strip()
+    audio = AUDIO / f"{row['id']}.flac"
+    if not language:
+        raise RuntimeError("language is missing")
+    if not audio.exists():
+        raise RuntimeError(f"normalized audio is missing: {audio}")
+    run(["whisperx", str(audio), "--model", row.get("align_model", "large-v3") or "large-v3", "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+
+
+def align(dry_run: bool) -> None:
+    """Run WhisperX for every eligible song; skip failures individually."""
+    skipped = []
     for row in rows():
-        language = row.get("language", "").strip()
-        if not language:
-            raise SystemExit(f"Set language for {row['id']} in songs.csv")
-        run(["whisperx", str(AUDIO / f"{row['id']}.flac"), "--model", row.get("align_model", "large-v3") or "large-v3", "--language", language, "--device", row.get("device", "cpu") or "cpu", "--compute_type", row.get("compute_type", "int8") or "int8", "--output_format", "json", "--output_dir", str(ALIGN), "--return_char_alignments"], dry_run)
+        try:
+            align_row(row, dry_run)
+        except (RuntimeError, subprocess.CalledProcessError) as exc:
+            print(f"SKIP {row['id']}: alignment unavailable ({exc})")
+            skipped.append(row["id"])
+    if skipped:
+        print("Skipped alignment: " + ", ".join(skipped))
 
 
 def cleanup(dry_run: bool, drop_source: bool) -> None:
@@ -327,14 +342,20 @@ def lyrics(dry_run: bool) -> None:
         timing_path = word_json(row)
         if timing_path is None and not dry_run:
             print(f"{row['id']}: word timing missing; starting automatic alignment")
-            align(False)
+            try:
+                align_row(row, False)
+            except (RuntimeError, subprocess.CalledProcessError) as exc:
+                print(f"SKIP {row['id']}: word timings unavailable ({exc})")
+                continue
             timing_path = word_json(row)
         if timing_path is None:
-            raise SystemExit(
-                f"{row['id']} has no word-level timing. Automatic alignment requires WhisperX; "
-                "install requirements-align.txt and rerun."
-            )
-        entries = apply_word_timing(entries, timing_path)
+            print(f"SKIP {row['id']}: no word-level timing found")
+            continue
+        try:
+            entries = apply_word_timing(entries, timing_path)
+        except (OSError, ValueError, KeyError, SystemExit) as exc:
+            print(f"SKIP {row['id']}: invalid word timing data ({exc})")
+            continue
         source_label += " + word alignment"
         if not dry_run:
             (ASS / f"{row['id']}.auto.ass").write_text(ass(row, entries), encoding="utf-8")
@@ -364,20 +385,25 @@ def edit(row: dict[str, str]) -> None:
 
 def render(dry_run: bool) -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    for row in rows():
+    song_rows = rows()
+    if not dry_run:
+        needs_alignment = any(
+            not edited_path(row["id"]).exists()
+            and (ASS / f"{row['id']}.auto.ass").exists()
+            and "{\\k" not in (ASS / f"{row['id']}.auto.ass").read_text(encoding="utf-8")
+            for row in song_rows
+        )
+        if needs_alignment:
+            print("Some songs have no word timing; starting automatic alignment where possible")
+            lyrics(False)
+    for row in song_rows:
         subtitle = edited_path(row["id"]) if edited_path(row["id"]).exists() else ASS / f"{row['id']}.auto.ass"
         if not subtitle.exists():
             raise SystemExit(f"Missing ASS for {row['id']}; run lyrics first")
         ass_text = subtitle.read_text(encoding="utf-8")
-        if "{\\k" not in ass_text and not edited_path(row["id"]).exists() and not dry_run:
-            print(f"{row['id']}: render requested without word timing; starting automatic alignment")
-            lyrics(False)
-            ass_text = subtitle.read_text(encoding="utf-8")
         if "{\\k" not in ass_text:
-            raise SystemExit(
-                f"{row['id']} has line timing only. Run `python3 pipeline.py lyrics` to trigger "
-                "automatic word-level alignment before rendering."
-            )
+            print(f"SKIP {row['id']}: no word-level timing; no output rendered")
+            continue
         subtitle_filter_path = str(subtitle).replace("\\", "/").replace(":", "\\:")
         vf = f"ass={subtitle_filter_path}"
         run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(OUTPUT / f"{row['id']}.mp4")], dry_run)
