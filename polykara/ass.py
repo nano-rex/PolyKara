@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
+from .romanize import romanize
 from .subtitle import split_speaker
 
 
@@ -42,6 +43,7 @@ def ass(row: dict[str, str], entries) -> str:
     lyric_style["color"] = karaoke_style.get("active_color", lyric_style.get("color", "&H00FF0000"))
     lyric_style["secondary_color"] = karaoke_style.get("inactive_color", lyric_style.get("secondary_color", "&H00FFFFFF"))
     prompt_style, watermark_style = config["prompt"], config["watermark"]
+    romanization_style = config.get("romanization", {})
     def text_template(values: dict, fallback: str) -> str:
         try:
             return str(values.get("text", fallback)).format(**row)
@@ -54,7 +56,7 @@ def ass(row: dict[str, str], entries) -> str:
     out = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {video['play_res_x']}", f"PlayResY: {video['play_res_y']}", "WrapStyle: 2", "ScaledBorderAndShadow: yes", "",
         "[V4+ Styles]", "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        style("Header", title_style, "&H00FFFFFF"), style("Credit", credit_style, "&H00FFFFFF"), style("Lyric", lyric_style, "&H00FF0000"), style("Prompt", prompt_style, "&H00FFFFFF"), style("Watermark", watermark_style, "&H80FFFFFF"), "",
+        style("Header", title_style, "&H00FFFFFF"), style("Credit", credit_style, "&H00FFFFFF"), style("Lyric", lyric_style, "&H00FF0000"), style("Romanization", romanization_style, "&H00FFFFFF"), style("Prompt", prompt_style, "&H00FFFFFF"), style("Watermark", watermark_style, "&H80FFFFFF"), "",
         "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     first_lyric = min((start for start, _, _, _ in entries), default=0)
@@ -111,6 +113,9 @@ def ass(row: dict[str, str], entries) -> str:
         if speaker:
             semantic = {"duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF", "backing": "&H0000FF00"}
             visible = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}{visible}"
+        romanized = romanize(lyric_text, row.get("language", ""), romanization_style)
+        if romanized:
+            out.append(f"Dialogue: 1,{at(start)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
         out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
         previous_end = max(previous_end, end)
     return "\n".join(out) + "\n"

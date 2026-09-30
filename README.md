@@ -80,6 +80,18 @@ Enhanced LRC supports word or syllable marks:
 
 Songs without word-level timing are skipped rather than rendered with false karaoke highlighting.
 
+### Romanized sing-along text
+
+For non-Latin lyrics, PolyKara can add a romanized line above the original lyric. Install the optional engines with:
+
+```bash
+pip install -r requirements-romanization.txt
+```
+
+The default configuration supports Mandarin pinyin, Cantonese Jyutping, Japanese Hepburn romaji, Korean romanization, and Indic scripts including Tamil. Set `romanization.enabled = false`, remove a language from `romanization.languages`, or change `romanization.tone` to `"marks"` for tone marks such as `nǐ hǎo` instead of `ni3 hao3`.
+
+Romanization is generated from the lyric text and displayed above the timed original line. The original line remains the authoritative karaoke timing; if an optional engine is not installed, PolyKara keeps the original lyric rather than failing the render.
+
 ## Karaoke presentation
 
 Edit `polykara.toml` to change the lyric font, size, colors, title card, credits, or watermark. For example:

@@ -1,0 +1,6 @@
+# Optional romanization engines for bilingual sing-along subtitles.
+pypinyin
+pykakasi
+tojyutping
+hangul-romanize
+indic-transliteration

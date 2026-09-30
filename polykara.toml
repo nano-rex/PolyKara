@@ -63,6 +63,27 @@ active_color = "&H00FF0000"
 inactive_color = "&H00FFFFFF"
 tag = "kf"
 
+[romanization]
+# Optional engines are installed with: pip install -r requirements-romanization.txt
+enabled = true
+languages = ["zh", "yue", "ja", "ko", "hi", "ta", "bn", "gu", "kn", "ml", "mr", "ne", "pa", "sa", "te", "or"]
+font = "Arial"
+size = 30
+color = "&H00FFFFFF"
+outline_color = "&H80000000"
+back_color = "&H50000000"
+horizontal = "center"
+vertical = "bottom"
+margin_l = 80
+margin_r = 80
+margin_v = 225
+bold = false
+italic = false
+outline = 2
+shadow = 1
+# Mandarin: numbers (ni3 hao3) or marks (nǐ hǎo).
+tone = "numbers"
+
 [lyrics]
 # Provider order. Use an empty list to disable automatic external lookup.
 sources = ["lrclib", "lyrics.ovh", "webpage"]
