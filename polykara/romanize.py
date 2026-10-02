@@ -1,17 +1,24 @@
 """Optional romanization helpers for sing-along subtitles."""
 from __future__ import annotations
 
+import functools
+
 
 def romanize(text: str, language: str, settings: dict) -> str | None:
     if not settings.get("enabled", True):
         return None
-    language = language.casefold().replace("_", "-").split("-", 1)[0]
-    if language not in {str(item).casefold() for item in settings.get("languages", [])}:
+    tag = language.casefold().replace("_", "-").strip()
+    language = tag.split("-", 1)[0]
+    # Hong Kong Chinese is sung in Cantonese; other zh-* tags are Mandarin.
+    if tag in {"zh-hk", "zh-yue"}:
+        language = "yue"
+    enabled = {str(item).casefold() for item in settings.get("languages", [])}
+    if language not in enabled and tag not in enabled:
         return None
     try:
         if language in {"zh", "cmn"}:
             return _mandarin(text, settings)
-        if language in {"yue", "zh-hk", "zh-tw"}:
+        if language == "yue":
             return _cantonese(text)
         if language == "ja":
             return _japanese(text)
@@ -40,10 +47,14 @@ def _cantonese(text: str) -> str:
 
 
 def _japanese(text: str) -> str:
+    return " ".join(item["hepburn"] for item in _kakasi().convert(text) if item.get("hepburn")).strip()
+
+
+@functools.lru_cache(maxsize=1)
+def _kakasi():
     import pykakasi
 
-    converter = pykakasi.kakasi()
-    return " ".join(item["hepburn"] for item in converter.convert(text) if item.get("hepburn")).strip()
+    return pykakasi.kakasi()
 
 
 def _korean(text: str) -> str:

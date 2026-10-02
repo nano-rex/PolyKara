@@ -5,6 +5,27 @@ play_res_x = 1920
 play_res_y = 1080
 extend_intro = true
 
+[render]
+# FFmpeg encoder settings. Leave preset or crf empty ("") for encoders that do not use them,
+# and pass their own options through extra_args, e.g. video_codec = "h264_nvenc", extra_args = ["-cq", "20"].
+video_codec = "libx264"
+preset = "medium"
+crf = 18
+pixel_format = "yuv420p"
+audio_codec = "aac"
+audio_bitrate = "192k"
+extra_args = []
+
+[logo]
+# Image burned into every video; a logo_file value in songs.csv overrides it per song.
+# Sizes and margins use the same 1920x1080 coordinate space as the subtitles.
+file = ""
+width = 220
+position = "top-right"
+margin_x = 40
+margin_y = 40
+opacity = 1.0
+
 [title]
 enabled = true
 text = "{title}  |  {artist}"
@@ -87,6 +108,8 @@ tone = "numbers"
 [lyrics]
 # Provider order. Use an empty list to disable automatic external lookup.
 sources = ["lrclib", "lyrics.ovh", "webpage"]
+# Use YouTube automatic captions when no better lyrics exist.
+auto_captions = true
 
 [alignment]
 # auto reserves reserve_memory_gib for the system and selects a model from the thresholds.
@@ -105,6 +128,12 @@ num_workers = 1
 [timing]
 long_pause_ms = 30000
 dot_interval_ms = 1000
+# Show each line this long before it is sung, when the previous line has already ended.
+lead_in_ms = 500
+# A line whose last word ends more than max_tail_ms before the next line leaves the
+# screen tail_hold_ms after that word. Set max_tail_ms = 0 to keep lines until the next one.
+max_tail_ms = 5000
+tail_hold_ms = 1000
 
 [singers]
 max = 16

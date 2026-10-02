@@ -11,7 +11,25 @@ def at(value: int) -> str:
 
 
 def esc(value: str) -> str:
-    return value.replace("\\", "\\N").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+    # A literal backslash would start an ASS override sequence, so it is shown as a slash.
+    return value.replace("\\", "/").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+
+
+def karaoke_text(words, line_start: int, tag: str) -> str:
+    """Build karaoke tags whose durations add up from the line start.
+
+    ASS karaoke durations are cumulative, so the wait before the first word and
+    every pause between words is emitted as an empty \\k syllable.
+    """
+    parts, cursor = [], max(0, line_start) // 10
+    for left, right, word in words:
+        begin = max(cursor, left // 10)
+        finish = max(begin + 1, right // 10)
+        if begin > cursor:
+            parts.append(f"{{\\k{begin - cursor}}}")
+        parts.append(f"{{\\{tag}{finish - begin}}}{esc(word)}")
+        cursor = finish
+    return "".join(parts)
 
 
 def alignment(values: dict) -> int:
@@ -22,17 +40,21 @@ def alignment(values: dict) -> int:
     return vertical + horizontal + 1
 
 
-def intro_padding_ms(entries) -> int:
-    config = load_config()
-    if not config["video"].get("extend_intro", True) or not entries:
-        return 0
-    first_lyric = min(start for start, _, _, _ in entries)
+def card_end_ms(config: dict) -> int:
     card_end = 0
     for name in ("title", "credit"):
         values = config[name]
         if values.get("enabled", True):
             card_end = max(card_end, int(values.get("start_ms", 0)) + max(0, int(values.get("duration_ms", 6000))))
-    return max(0, card_end - first_lyric)
+    return card_end
+
+
+def intro_padding_ms(entries) -> int:
+    config = load_config()
+    if not config["video"].get("extend_intro", True) or not entries:
+        return 0
+    first_lyric = min(start for start, _, _, _ in entries)
+    return max(0, card_end_ms(config) - first_lyric)
 
 
 def ass(row: dict[str, str], entries) -> str:
@@ -49,6 +71,8 @@ def ass(row: dict[str, str], entries) -> str:
             return str(values.get("text", fallback)).format(**row)
         except KeyError as exc:
             raise ValueError(f"Unknown title/credit template field: {exc.args[0]}") from exc
+        except (IndexError, ValueError) as exc:
+            raise ValueError(f"Invalid title/credit template ({exc}); write literal braces as {{{{ and }}}}") from exc
     title = esc(text_template(title_style, "{title}  |  {artist}"))
     credit = esc(text_template(credit_style, "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}"))
     def style(name: str, values: dict, primary: str, secondary: str = "&H00FFFFFF", outline: str = "&H80000000", back: str = "&H50000000") -> str:
@@ -90,14 +114,16 @@ def ass(row: dict[str, str], entries) -> str:
     max_singers = int(config.get("singers", {}).get("max", MAX_SINGERS))
     if len(speakers) > max_singers:
         raise ValueError(f"{row['id']} has {len(speakers)} singers; maximum is {max_singers}")
-    slots = {speaker.casefold(): SPEAKER_PALETTE[index] for index, speaker in enumerate(speakers)}
+    slots = {speaker.casefold(): SPEAKER_PALETTE[index % len(SPEAKER_PALETTE)] for index, speaker in enumerate(speakers)}
     timing = config.get("timing", {})
     long_pause_ms = int(timing.get("long_pause_ms", LONG_PAUSE_MS))
     dot_interval_ms = int(timing.get("dot_interval_ms", DOT_INTERVAL_MS))
     karaoke_tag = str(karaoke_style.get("tag", "kf")).lower()
     if karaoke_tag not in {"k", "kf"}:
         raise ValueError("karaoke.tag must be 'k' or 'kf'")
-    previous_end = 0
+    lead_in_ms = max(0, int(timing.get("lead_in_ms", 0)))
+    # Lines never appear early enough to collide with the title cards or the previous line.
+    previous_end, shown_until = 0, min(card_end_ms(config), first_lyric + intro_padding)
     for start, end, text, words in entries:
         start += intro_padding
         end += intro_padding
@@ -105,9 +131,10 @@ def ass(row: dict[str, str], entries) -> str:
         if start - previous_end >= long_pause_ms:
             for count in range(1, 4):
                 dot_start = start - (4 - count) * dot_interval_ms
-                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,220,,{'.' * count}")
+                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,0,,{'.' * count}")
+        shown = min(start, max(shown_until, start - lead_in_ms))
         if words:
-            visible = " ".join(f"{{\\{karaoke_tag}{max(1, round((right - left) / 10))}}}{esc(word)}" for left, right, word in words)
+            visible = karaoke_text([(left + intro_padding, right + intro_padding, word) for left, right, word in words], shown, karaoke_tag)
         else:
             visible = esc(lyric_text)
         if speaker:
@@ -115,7 +142,8 @@ def ass(row: dict[str, str], entries) -> str:
             visible = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}{visible}"
         romanized = romanize(lyric_text, row.get("language", ""), romanization_style)
         if romanized:
-            out.append(f"Dialogue: 1,{at(start)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
-        out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
+            out.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
+        out.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,0,,{visible}")
         previous_end = max(previous_end, end)
+        shown_until = max(shown_until, end)
     return "\n".join(out) + "\n"
