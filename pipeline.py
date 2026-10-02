@@ -27,6 +27,13 @@ KARAOKE_TAG = "{\\k"
 FAILED: dict[str, str] = {}
 # Songs that were produced although their lyrics did not pass the accuracy check.
 UNVERIFIED: dict[str, str] = {}
+# Songs set aside because nothing can be made from them yet (no lyrics). Not an error.
+SKIPPED: dict[str, str] = {}
+NO_LYRICS = "no lyrics available from any source; add a lyrics_file or lyric_pages in songs.csv"
+
+
+class SkipSong(Exception):
+    """The song cannot be produced yet; leave it out and carry on with the others."""
 
 
 def describe(exc: BaseException) -> str:
@@ -41,12 +48,15 @@ def describe(exc: BaseException) -> str:
 def each(step: str, song_rows: list[dict[str, str]], action: Callable[[dict[str, str]], None]) -> None:
     """Run one step for every song. A failure skips that song only; the rest of the batch continues."""
     for row in song_rows:
-        if row["id"] in FAILED:
+        if row["id"] in FAILED or row["id"] in SKIPPED:
             continue
         try:
             action(row)
         except KeyboardInterrupt:
             raise
+        except SkipSong as exc:
+            SKIPPED[row["id"]] = str(exc)
+            print(f"SKIP {row['id']}: {exc}; continuing with the next song")
         except (Exception, SystemExit) as exc:
             FAILED[row["id"]] = f"{step}: {describe(exc)}"
             print(f"SKIP {row['id']}: {step} failed ({describe(exc)}); continuing with the next song")
@@ -168,8 +178,12 @@ def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> 
 
 
 def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
-    """Fetch what a song is still missing. Media and lyrics that are already here cost no network request."""
+    """Fetch what a song is still missing. Lyrics and media that are already here cost no network request."""
     sid = row["id"]
+    # Lyrics come first: a song without any is set aside before its video is downloaded.
+    download_lyrics(row, dry_run, force)
+    if not dry_run and check_lyrics(row).primary is None:
+        raise SkipSong(NO_LYRICS)
     media = find_source(sid)
     problem = media_problem(media) if media is not None else None
     if problem:
@@ -189,7 +203,6 @@ def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> No
             problem = media_problem(media)
             if problem:
                 raise SongError(f"downloaded {media.name} is not usable ({problem}); update yt-dlp and install its JavaScript runtime (deno), then rerun")
-    download_lyrics(row, dry_run, force)
 
 
 def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False, force: bool = False) -> None:
@@ -290,7 +303,7 @@ def align_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     # Alignment is the slowest step, so it only runs for songs that have lyrics to time.
     found = lyric_source(row)
     if found is None:
-        raise SongError("no lyrics_file, downloaded subtitle, or external lyrics to time")
+        raise SkipSong(NO_LYRICS)
     report = check_lyrics(row)
     if not report.verified and load_config()["lyrics"].get("require_verified", False):
         raise SongError(f"lyrics not verified: {report.problem()}")
@@ -314,7 +327,7 @@ def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
     sid = row["id"]
     report = check_lyrics(row)
     if report.primary is None:
-        raise SongError("no lyrics_file, downloaded subtitle, or external lyrics")
+        raise SkipSong(NO_LYRICS)
     kind, label, path, entries = report.primary.kind, report.primary.label, report.primary.path, report.primary.entries
     estimated: list[int] = []
     # The accuracy check comes first: it must be visible even when alignment later fails.
@@ -550,6 +563,10 @@ def summary() -> int:
     if UNVERIFIED:
         print(f"\n{len(UNVERIFIED)} song(s) have lyrics that did not pass the accuracy check; review them before publishing:")
         for sid, reason in UNVERIFIED.items():
+            print(f"  {sid}: {reason}")
+    if SKIPPED:
+        print(f"\n{len(SKIPPED)} song(s) were set aside and can be completed later:")
+        for sid, reason in SKIPPED.items():
             print(f"  {sid}: {reason}")
     if not FAILED:
         return 0

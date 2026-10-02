@@ -15,9 +15,28 @@ def lyric_check(count):
 class BatchIsolationTest(unittest.TestCase):
     def setUp(self):
         pipeline.FAILED.clear()
+        pipeline.SKIPPED.clear()
 
     def tearDown(self):
         pipeline.FAILED.clear()
+        pipeline.SKIPPED.clear()
+
+    def test_song_without_lyrics_is_set_aside_without_an_error_status(self):
+        done = []
+
+        def action(row):
+            if row["id"] == "b":
+                raise pipeline.SkipSong(pipeline.NO_LYRICS)
+            done.append(row["id"])
+
+        songs = [{"id": name} for name in "abc"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            pipeline.each("download", songs, action)
+            pipeline.each("render", songs, lambda row: done.append(row["id"] + "2"))
+            status = pipeline.summary()
+        self.assertEqual(done, ["a", "c", "a2", "c2"])
+        self.assertEqual(list(pipeline.SKIPPED), ["b"])
+        self.assertEqual(status, 0)
 
     def test_one_failing_song_does_not_stop_the_others(self):
         done = []
@@ -94,6 +113,14 @@ class DownloadSkipTest(unittest.TestCase):
         pipeline.check_lyrics = lambda row: lyric_check(1)
         pipeline.lyrics_marker = lambda sid: Marker(True)
         self.assertEqual(self.download(), [])
+
+    def test_song_without_lyrics_does_not_download_media(self):
+        pipeline.find_source = lambda sid: None
+        pipeline.check_lyrics = lambda row: lyric_check(0)
+        pipeline.lyrics_marker = lambda sid: Marker(True)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(pipeline.SkipSong):
+            pipeline.download_song(self.row, False)
+        self.assertEqual(self.commands, [])
 
     def test_reprocess_retries_lyrics_only(self):
         pipeline.check_lyrics = lambda row: lyric_check(1)
