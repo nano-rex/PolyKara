@@ -216,8 +216,15 @@ def download(dry_run: bool, trending: bool = False, regions: str = "", pick: boo
     each("download", song_rows, lambda row: download_song(row, dry_run, force))
 
 
+def require_lyrics(row: dict[str, str]) -> None:
+    """Set a song aside when it has no lyric file; every step after download starts with this."""
+    if check_lyrics(row).primary is None:
+        raise SkipSong(NO_LYRICS)
+
+
 def normalize_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     sid = row["id"]
+    require_lyrics(row)
     media, audio = source(sid), AUDIO / f"{sid}.flac"
     problem = media_problem(media)
     if problem:
@@ -297,6 +304,7 @@ def needs_alignment(kind: str, entries: list) -> bool:
 
 def align_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     sid = row["id"]
+    require_lyrics(row)
     if not force and is_aligned(row):
         print(f"{sid}: word timing is up to date; skipping alignment")
         return
@@ -387,6 +395,7 @@ def render_subtitle(row: dict[str, str]) -> Path:
 def edit(row: dict[str, str]) -> None:
     auto, edited = auto_path(row["id"]), edited_path(row["id"])
     if not auto.exists() and not edited.exists():
+        require_lyrics(row)
         raise SongError(f"missing {auto.name}; run lyrics first")
     if not edited.exists():
         shutil.copy2(auto, edited)
@@ -446,6 +455,9 @@ def encoder_args() -> list[str]:
 def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
     sid = row["id"]
     output = output_path(sid)
+    # A subtitle that already exists can be rendered; otherwise the song needs lyrics to make one.
+    if not edited_path(sid).exists() and not auto_path(sid).exists():
+        require_lyrics(row)
     if not dry_run and not has_karaoke(edited_path(sid)) and not has_karaoke(auto_path(sid)):
         print(f"{sid}: no karaoke subtitle yet; generating lyrics first")
         lyrics_song(row, False)

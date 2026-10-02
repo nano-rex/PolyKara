@@ -61,6 +61,43 @@ class BatchIsolationTest(unittest.TestCase):
         self.assertEqual(pipeline.summary(), 0)
 
 
+class NoLyricsTest(unittest.TestCase):
+    """normalize, align, lyrics, and render set a song without lyric files aside instead of failing."""
+
+    def setUp(self):
+        self.commands = []
+        self.saved = {name: getattr(pipeline, name) for name in ("run", "check_lyrics", "align_row", "ASS")}
+        pipeline.run = lambda cmd, dry_run=False, cwd=None: self.commands.append(cmd[0])
+        pipeline.align_row = lambda row, dry_run: self.commands.append("align")
+        pipeline.check_lyrics = lambda row: lyric_check(0)
+        # A directory that does not exist: the song has no subtitle yet.
+        pipeline.ASS = pipeline.ASS / "missing-for-test"
+        pipeline.FAILED.clear()
+        pipeline.SKIPPED.clear()
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(pipeline, name, value)
+        pipeline.FAILED.clear()
+        pipeline.SKIPPED.clear()
+
+    def test_every_later_step_skips_the_song_and_runs_the_next_one(self):
+        songs = [{"id": "no-lyrics", "language": "en"}]
+        steps = {
+            "normalize": lambda row: pipeline.normalize_song(row, False),
+            "align": lambda row: pipeline.align_song(row, False),
+            "lyrics": lambda row: pipeline.lyrics_song(row, False),
+            "render": lambda row: pipeline.render_song(row, False, True),
+        }
+        for name, action in steps.items():
+            pipeline.SKIPPED.clear()
+            with contextlib.redirect_stdout(io.StringIO()):
+                pipeline.each(name, songs, action)
+            self.assertEqual(pipeline.SKIPPED, {"no-lyrics": pipeline.NO_LYRICS}, name)
+        self.assertEqual(pipeline.FAILED, {})
+        self.assertEqual(self.commands, [])
+
+
 class Marker:
     def __init__(self, present):
         self.present = present

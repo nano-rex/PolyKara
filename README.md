@@ -32,7 +32,7 @@ The download step checks media and lyrics separately and only fetches what is mi
 
 Every step runs song by song. When a step fails for one song (a download error, a missing lyrics file, an alignment or FFmpeg error), PolyKara prints `SKIP <id>: <step> failed (<reason>)`, leaves that song out of the remaining steps, and continues with the next song. A summary at the end lists each skipped song with its reason, and the command exits with status 1 so scripts can notice. Fix the cause and rerun the same command; only the unfinished songs are processed.
 
-A song for which no lyrics can be found is set aside the same way, before its video is downloaded: lyrics are looked up first, and without any lyric file the song is skipped and listed at the end as something to complete later. This is not counted as an error. Add a `lyrics_file` or `lyric_pages` for it and rerun.
+A song for which no lyrics can be found is set aside the same way, before its video is downloaded: lyrics are looked up first, and without any lyric file the song is skipped and listed at the end as something to complete later. The later steps behave the same when run on their own: `normalize`, `align`, `lyrics`, and `render` skip any song that has a video but no lyric file and continue with the next one. This is not counted as an error. Add a `lyrics_file` or `lyric_pages` for it and rerun.
 
 Only problems that affect every song stop the run: a missing `yt-dlp`/`ffmpeg`, or an invalid `songs.csv` or `polykara.toml`.
 
