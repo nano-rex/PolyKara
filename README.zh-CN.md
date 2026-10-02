@@ -23,7 +23,7 @@
 
    已完成的工作会被复用：已有 MP4 的歌曲会跳过，已下载的视频和已有的对轴结果不会重复处理；如果 `.edited.ass` 比 MP4 新，会自动重新渲染。使用 `--reprocess` 可强制重新生成 ASS 和 MP4，加上 `--realign` 可同时重新对轴。
 
-下载步骤分别检查视频和歌词，只获取缺少的部分。`work/raw` 中已有且可以播放的视频（用 `ffprobe` 在本地检查）不会重新下载；无法播放的文件（例如中断的下载）会被删除并重新下载。已有可用歌词的歌曲（`lyrics_file`、已下载的字幕，或能解析出歌词行的外部歌词缓存）不会再请求字幕或歌词来源。找不到歌词的结果会被记录，避免每次运行都重复查询；`python3 pipeline.py download --reprocess` 会重新尝试。
+下载步骤分别检查视频和歌词，只获取缺少的部分。`work/raw` 中已有且可以播放的视频（用 `ffprobe` 在本地检查）不会重新下载；无法播放的文件（例如中断的下载）会被删除并重新下载。下载步骤会一直收集歌词，直到歌曲至少有 3 个可用的歌词文件（见下方“歌词准确性检查”）；已满足的歌曲不会再请求字幕或歌词来源。所有来源都尝试过后会被记录，避免每次运行都重复查询；`python3 pipeline.py download --reprocess` 会重新尝试。
 
 ### 单首歌曲出错不会中断整批
 
@@ -65,7 +65,15 @@ python3 pipeline.py lyrics
 python3 pipeline.py render --reprocess
 ```
 
-歌词优先级：`songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt`，或由对轴结果计时的纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → 经过标题、歌手和跨来源文本验证的同步歌词 → 歌曲语言的 YouTube 自动字幕（可用 `lyrics.auto_captions = false` 关闭）→ `lyric_pages` 网页歌词。某个来源没有可用歌词行时会自动尝试下一个。LRCLIB 查询会去掉标题中的 `(Official Video)` 等修饰，并选择时长最接近视频的版本；时长相差超过 5 秒时会给出警告。歌词来源可在 `polykara.toml` 的 `[lyrics] sources` 中设置，也可在 `songs.csv` 的 `lyric_sources` 中为单首歌曲覆盖。支持 LRCLIB、Lyrics.ovh 和公开歌词网页容器。没有 word-level timing 时不会生成假高亮视频。
+### 歌词准确性检查
+
+每个来源的歌词都单独保存为一个文件，以便互相比对。可信度顺序：`songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt` 或纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → LRCLIB 同步歌词（`work/lyrics/<id>.lrclib.lrc`）→ 网易云音乐同步歌词（`<id>.netease.lrc`）→ 歌曲语言的 YouTube 自动字幕 → LRCLIB、Lyrics.ovh 和各个 `lyric_pages` 网页的纯文本歌词（`<id>.<来源>.txt`）。
+
+一首歌至少需要 3 个可用的歌词文件才能进行可靠的准确性检查。下载步骤先查询歌词来源，文件仍不足时才请求 YouTube 字幕。如果仍然不足，请在 `songs.csv` 中添加 `lyrics_file` 或 `lyric_pages`（多个网址用 `|` 分隔）。
+
+`lyrics` 步骤逐词比对这些文件：包括用于渲染的文件在内，至少 3 个文件一致时歌词为“已验证”。没有 `lyrics_file` 时，会选用被其他文件确认的、可信度最高的带时间轴文件，因此单个错误来源会被否决；`lyrics_file` 始终会被使用，与其他文件矛盾时会给出警告。该步骤会输出每个文件的一致程度以及歌词在音频识别结果中出现的比例，并把结果保存到 `work/lyrics/<id>.check.json`；`qa` 会显示每首歌的结论。
+
+未通过验证的歌曲仍会生成，但会给出警告并在运行结束时列出。在 `polykara.toml` 的 `[lyrics]` 中设置 `require_verified = true` 可改为跳过这些歌曲；`min_sources` 和 `agreement_threshold` 可调整要求。安装 `zhconv`（已包含在 `requirements-romanization.txt` 中）后，繁体和简体的同一份歌词会被视为一致。LRCLIB 查询会去掉标题中的 `(Official Video)` 等修饰，并选择时长最接近视频的版本；时长相差超过 5 秒时会给出警告。歌词来源可在 `polykara.toml` 的 `[lyrics] sources` 中设置，也可在 `songs.csv` 的 `lyric_sources` 中为单首歌曲覆盖。支持 LRCLIB、网易云音乐、Lyrics.ovh 和公开歌词网页容器。没有 word-level timing 时不会生成假高亮视频。
 
 `align_model=auto` 会检测系统内存，默认固定预留 2 GiB 给系统；例如 8 GiB 内存会给对轴预算 6 GiB。可在 `polykara.toml` 或 `songs.csv` 中调整模型和阈值。
 

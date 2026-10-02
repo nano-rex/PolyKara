@@ -107,9 +107,16 @@ tone = "numbers"
 
 [lyrics]
 # Provider order. Use an empty list to disable automatic external lookup.
-sources = ["lrclib", "lyrics.ovh", "webpage"]
+sources = ["lrclib", "netease", "lyrics.ovh", "webpage"]
 # Use YouTube automatic captions when no better lyrics exist.
 auto_captions = true
+# Accuracy check: a song's lyrics count as verified when at least min_sources lyric files
+# (the lyrics_file, subtitles, captions, and each provider's file) agree with each other.
+# agreement_threshold is the share of words two files must have in common, in order.
+min_sources = 3
+agreement_threshold = 0.6
+# true skips songs whose lyrics are not verified instead of rendering them with a warning.
+require_verified = false
 
 [alignment]
 # auto reserves reserve_memory_gib for the system and selects a model from the thresholds.

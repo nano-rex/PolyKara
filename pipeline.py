@@ -16,17 +16,16 @@ from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
 from polykara.charts import add_selected
 from polykara.config import ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, load_config, run, require_current_ytdlp
-from polykara.manifest import check, find_source, resolve, rows, select, source
-from polykara.providers import external_lyrics_path, external_webpage_path, fetch_external_lyrics
-from polykara.subtitle import apply_word_timing, downloaded_subtitle, lrc, plain_lyrics_entries, timed_subtitle, word_json
+from polykara.manifest import SongError, check, find_source, resolve, rows, select, source
+from polykara.providers import fetch_external_lyrics
+from polykara.subtitle import downloaded_subtitle, load_units, plain_entries, time_entries, word_json
+from polykara.verify import LyricCheck, agreement, check_lyrics
 
 KARAOKE_TAG = "{\\k"
 # Songs that failed a step in this run, with the reason. They are left out of later steps.
 FAILED: dict[str, str] = {}
-
-
-class SongError(Exception):
-    """A problem that stops one song but must not stop the batch."""
+# Songs that were produced although their lyrics did not pass the accuracy check.
+UNVERIFIED: dict[str, str] = {}
 
 
 def describe(exc: BaseException) -> str:
@@ -107,44 +106,47 @@ def lyrics_marker(sid: str) -> Path:
 
 
 def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
-    """Fetch subtitles and external lyrics unless the song already has usable lyrics."""
+    """Fetch subtitles and external lyrics until the song has enough lyric files for an accuracy check."""
     sid = row["id"]
     try:
-        found = lyric_source(row)
+        report = check_lyrics(row)
     except SongError as exc:
         print(f"WARN {sid}: {exc}")
         return
-    if found is not None and not force:
+    if len(report.files) >= report.min_sources and not force:
         # Usable means the file parses into lyric lines, the counterpart of a playable video.
-        print(f"{sid}: lyrics found and usable ({found[1]}: {found[2].name}); skipping lyric download")
+        print(f"{sid}: {len(report.files)} usable lyric files found; skipping lyric download")
         return
     if lyrics_marker(sid).exists() and not force:
-        print(f"{sid}: no lyrics were available last time; skipping (download --reprocess tries again)")
+        print(f"{sid}: {len(report.files)} of {report.min_sources} lyric files; every source was already tried (download --reprocess tries again)")
         return
+    print(f"{sid}: {len(report.files)} of {report.min_sources} lyric files; looking for more")
     # Subtitles and external lyrics are optional inputs: report problems and carry on.
     complete = True
-    try:
-        require_current_ytdlp()
-        if force and not dry_run:
-            (SUBTITLES / f"{sid}.checked").unlink(missing_ok=True)
-        download_subtitles(row, dry_run)
-    except (subprocess.CalledProcessError, OSError, SystemExit) as exc:
-        complete = False
-        print(f"WARN {sid}: subtitle download failed ({describe(exc)}); continuing with other lyric sources")
+    if not dry_run:
+        (METADATA / f"{sid}.json").write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        try:
+            complete = fetch_external_lyrics(row)
+        except Exception as exc:
+            complete = False
+            print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
+    # The lyric providers are asked first; YouTube is only contacted when files are still missing.
+    if dry_run or force or len(check_lyrics(row).files) < report.min_sources:
+        try:
+            require_current_ytdlp()
+            if force and not dry_run:
+                (SUBTITLES / f"{sid}.checked").unlink(missing_ok=True)
+            download_subtitles(row, dry_run)
+        except (subprocess.CalledProcessError, OSError, SystemExit) as exc:
+            complete = False
+            print(f"WARN {sid}: subtitle download failed ({describe(exc)}); continuing with other lyric sources")
     if dry_run:
         return
-    (METADATA / f"{sid}.json").write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        cached = external_lyrics_path(row)
-        if cached.exists() and not lrc(cached):
-            print(f"{sid}: cached {cached.name} has no lyric lines; looking it up again")
-            cached.unlink()
-        fetch_external_lyrics(row)
-    except Exception as exc:
-        complete = False
-        print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
     if complete:
         lyrics_marker(sid).write_text("", encoding="utf-8")
+    report = check_lyrics(row)
+    if len(report.files) < report.min_sources:
+        print(f"WARN {sid}: only {len(report.files)} lyric file(s) available, {report.min_sources} needed for an accuracy check; add a lyrics_file or lyric_pages in songs.csv")
 
 
 def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
@@ -207,42 +209,33 @@ def normalize(dry_run: bool, force: bool = False) -> None:
 
 
 def lyric_source(row: dict[str, str]) -> tuple[str, str, Path, list] | None:
-    """Pick the best available lyrics as (kind, label, path, entries).
+    """The lyric file a song is rendered from, as (kind, label, path, entries).
 
-    Order: the manifest's own lyrics_file, creator-made subtitles, validated
-    external synced lyrics, automatic captions, then plain webpage lyrics.
-    Plain lyrics have no entries yet; they are timed against the alignment.
+    Trust order: the manifest's own lyrics_file, creator-made subtitles,
+    synced provider lyrics, automatic captions, then plain text. Without a
+    lyrics_file, the most trusted timed file that the other files confirm is
+    used. Plain lyrics have no entries yet; they are timed against the alignment.
     """
-    candidates: list[tuple[str, str, Path]] = []
-    raw = row.get("lyrics_file", "")
-    if raw:
-        path = resolve(raw)
-        if not path.exists():
-            raise SongError(f"lyrics_file not found: {path}")
-        kind = {".lrc": "lrc", ".srt": "subtitle", ".vtt": "subtitle", ".txt": "plain"}.get(path.suffix.lower())
-        if kind is None:
-            raise SongError(f"lyrics_file must be .lrc, .srt, .vtt, or .txt: {path}")
-        candidates.append((kind, "manifest lyrics_file", path))
-    manual = downloaded_subtitle(row)
-    if manual is not None:
-        candidates.append(("subtitle", "downloaded subtitle", manual))
-    if external_lyrics_path(row).exists():
-        candidates.append(("lrc", "validated external lyrics", external_lyrics_path(row)))
-    automatic = downloaded_subtitle(row, auto=True)
-    if automatic is not None and load_config()["lyrics"].get("auto_captions", True):
-        candidates.append(("subtitle", "automatic captions", automatic))
-    if external_webpage_path(row).exists():
-        candidates.append(("plain", "extracted webpage lyrics", external_webpage_path(row)))
-    for kind, label, path in candidates:
-        if kind == "plain":
-            if path.read_text(encoding="utf-8-sig").strip():
-                return kind, label, path, []
-            continue
-        entries = lrc(path) if kind == "lrc" else timed_subtitle(path)
-        if entries:
-            return kind, label, path, entries
-        print(f"{row['id']}: no timed lines in {path.name}; trying the next lyric source")
-    return None
+    primary = check_lyrics(row).primary
+    return (primary.kind, primary.label, primary.path, primary.entries) if primary else None
+
+
+def report_check(sid: str, report: LyricCheck, audio: float | None, dry_run: bool) -> None:
+    """Print and save the accuracy check; raise when unverified lyrics are not allowed."""
+    others = [f"{item.name} {item.score:.0%}{'' if item.agrees else ' (differs)'}" for item in report.files if item is not report.primary]
+    print(f"{sid}: lyric check: {len(report.files)} file(s); compared with {report.primary.name}: {', '.join(others) or 'nothing to compare'}")
+    if audio is not None:
+        print(f"{sid}: {audio:.0%} of the lyric words were also recognised in the audio")
+    if not dry_run:
+        EXTERNAL_LYRICS.mkdir(parents=True, exist_ok=True)
+        (EXTERNAL_LYRICS / f"{sid}.check.json").write_text(json.dumps({**report.as_dict(), "audio_agreement": None if audio is None else round(audio, 3)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if report.verified:
+        print(f"{sid}: lyrics verified, {report.agreeing} lyric files agree")
+        return
+    if load_config()["lyrics"].get("require_verified", False):
+        raise SongError(f"lyrics not verified: {report.problem()}")
+    UNVERIFIED[sid] = report.problem()
+    print(f"WARN {sid}: lyrics NOT verified: {report.problem()}")
 
 
 def needs_alignment(kind: str, entries: list) -> bool:
@@ -276,11 +269,12 @@ def timestamp(value: int) -> str:
 
 def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
     sid = row["id"]
-    found = lyric_source(row)
-    if found is None:
+    report = check_lyrics(row)
+    if report.primary is None:
         raise SongError("no lyrics_file, downloaded subtitle, or external lyrics")
-    kind, label, path, entries = found
+    kind, label, path, entries = report.primary.kind, report.primary.label, report.primary.path, report.primary.entries
     estimated: list[int] = []
+    audio = None
     if needs_alignment(kind, entries):
         timing_path = word_json(row)
         if timing_path is None:
@@ -293,13 +287,16 @@ def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
             timing_path = word_json(row)
         if timing_path is None:
             raise SongError("alignment produced no word-level timing")
-        timing = load_config()["timing"]
+        timing, units = load_config()["timing"], load_units(timing_path)
+        # The recognised audio is an independent witness that these are the words of this recording.
+        audio = agreement(report.primary.tokens, tuple(unit[2] for unit in units))
         if kind == "plain":
-            entries = plain_lyrics_entries(path, timing_path)
+            entries = plain_entries(path.read_text(encoding="utf-8-sig"), units)
         else:
-            entries = apply_word_timing(entries, timing_path, int(timing.get("max_tail_ms", 0)), int(timing.get("tail_hold_ms", 1000)), estimated)
+            entries = time_entries(entries, units, int(timing.get("max_tail_ms", 0)), int(timing.get("tail_hold_ms", 1000)), estimated)
     if not entries:
         raise SongError(f"no timed lines found in {path}")
+    report_check(sid, report, audio, dry_run)
     text, target = ass(row, entries), auto_path(sid)
     # Leave an unchanged file alone so its modification time keeps meaning "lyrics changed".
     if not dry_run and not (target.exists() and target.read_text(encoding="utf-8") == text):
@@ -455,8 +452,8 @@ def qa() -> None:
         sid = row["id"]
         selected = edited_path(sid) if edited_path(sid).exists() else auto_path(sid)
         try:
-            found = lyric_source(row)
-            lyric_state = found[1] if found else "MISSING"
+            report = check_lyrics(row)
+            lyric_state = "MISSING" if report.primary is None else f"{report.primary.label}, {'verified' if report.verified else 'NOT verified'} ({report.agreeing} of {len(report.files)} files agree)"
         except SongError as exc:
             lyric_state = f"ERROR ({exc})"
         if selected.exists():
@@ -499,6 +496,10 @@ def process(dry_run: bool, force: bool, realign: bool = False) -> None:
 
 
 def summary() -> int:
+    if UNVERIFIED:
+        print(f"\n{len(UNVERIFIED)} song(s) have lyrics that did not pass the accuracy check; review them before publishing:")
+        for sid, reason in UNVERIFIED.items():
+            print(f"  {sid}: {reason}")
     if not FAILED:
         return 0
     print(f"\n{len(FAILED)} song(s) were skipped; every other song ran to the end:")

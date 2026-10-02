@@ -38,7 +38,7 @@ DEFAULT_CONFIG = {
     "lyric": {"font": "Arial", "size": 58, "color": "&H00FF0000", "secondary_color": "&H00FFFFFF", "outline_color": "&H80000000", "back_color": "&H50000000", "alignment": 2, "margin_l": 80, "margin_r": 80, "margin_v": 150, "bold": True, "italic": False, "outline": 3, "shadow": 1},
     "karaoke": {"active_color": "&H00FF0000", "inactive_color": "&H00FFFFFF", "tag": "kf"},
     "romanization": {"enabled": True, "languages": ["zh", "yue", "ja", "ko", "hi", "ta", "bn", "gu", "kn", "ml", "mr", "ne", "pa", "sa", "te", "or"], "font": "Arial", "size": 30, "color": "&H00FFFFFF", "outline_color": "&H80000000", "back_color": "&H50000000", "horizontal": "center", "vertical": "bottom", "margin_l": 80, "margin_r": 80, "margin_v": 225, "bold": False, "italic": False, "outline": 2, "shadow": 1, "tone": "numbers"},
-    "lyrics": {"sources": ["lrclib", "lyrics.ovh", "webpage"], "auto_captions": True},
+    "lyrics": {"sources": ["lrclib", "netease", "lyrics.ovh", "webpage"], "auto_captions": True, "min_sources": 3, "agreement_threshold": 0.6, "require_verified": False},
     "alignment": {"model": "auto", "device": "auto", "compute_type": "int8", "reserve_memory_gib": 2, "base_min_budget_gib": 2, "small_min_budget_gib": 4, "medium_min_budget_gib": 8, "large_min_budget_gib": 12, "cpu_threads": 0, "num_workers": 1},
     "timing": {"long_pause_ms": 30000, "dot_interval_ms": 1000, "lead_in_ms": 500, "max_tail_ms": 5000, "tail_hold_ms": 1000},
     "singers": {"max": 16},

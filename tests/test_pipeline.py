@@ -4,6 +4,12 @@ import subprocess
 import unittest
 
 import pipeline
+from polykara.verify import LyricCheck, LyricFile
+
+
+def lyric_check(count):
+    files = [LyricFile(f"source{index}", "label", "lrc", pipeline.EXTERNAL_LYRICS / f"demo.source{index}.lrc") for index in range(count)]
+    return LyricCheck(files, files[0] if files else None, 3)
 
 
 class BatchIsolationTest(unittest.TestCase):
@@ -47,12 +53,12 @@ class Marker:
 class DownloadSkipTest(unittest.TestCase):
     def setUp(self):
         self.commands = []
-        self.saved = {name: getattr(pipeline, name) for name in ("run", "find_source", "playable", "require_current_ytdlp", "lyric_source", "lyrics_marker")}
+        self.saved = {name: getattr(pipeline, name) for name in ("run", "find_source", "playable", "require_current_ytdlp", "check_lyrics", "lyrics_marker")}
         pipeline.run = lambda cmd, dry_run=False, cwd=None: self.commands.append("subtitles" if "--skip-download" in cmd else "media")
         pipeline.require_current_ytdlp = lambda: None
         pipeline.find_source = lambda sid: pipeline.RAW / "demo.mp4"
         pipeline.playable = lambda path: True
-        pipeline.lyric_source = lambda row: ("lrc", "validated external lyrics", pipeline.EXTERNAL_LYRICS / "demo.lrc", [(0, 1000, "la", [])])
+        pipeline.check_lyrics = lambda row: lyric_check(3)
         pipeline.lyrics_marker = lambda sid: Marker(False)
         self.row = {"id": "demo", "url": "https://example.invalid/watch", "language": "en", "subtitle_langs": ""}
 
@@ -77,16 +83,20 @@ class DownloadSkipTest(unittest.TestCase):
         self.assertEqual(self.download(), ["media"])
 
     def test_missing_lyrics_are_fetched_without_touching_media(self):
-        pipeline.lyric_source = lambda row: None
+        pipeline.check_lyrics = lambda row: lyric_check(0)
+        self.assertEqual(set(self.download()), {"subtitles"})
+
+    def test_fewer_than_three_lyric_files_keeps_looking(self):
+        pipeline.check_lyrics = lambda row: lyric_check(2)
         self.assertEqual(set(self.download()), {"subtitles"})
 
     def test_lyrics_that_were_unavailable_are_not_requested_again(self):
-        pipeline.lyric_source = lambda row: None
+        pipeline.check_lyrics = lambda row: lyric_check(1)
         pipeline.lyrics_marker = lambda sid: Marker(True)
         self.assertEqual(self.download(), [])
 
     def test_reprocess_retries_lyrics_only(self):
-        pipeline.lyric_source = lambda row: None
+        pipeline.check_lyrics = lambda row: lyric_check(1)
         pipeline.lyrics_marker = lambda sid: Marker(True)
         self.assertEqual(set(self.download(force=True)), {"subtitles"})
 

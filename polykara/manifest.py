@@ -8,6 +8,10 @@ from pathlib import Path
 from .config import MANIFEST, MEDIA_SUFFIXES, RAW, ROOT, WORK, require_current_ytdlp
 
 REQUIRED_COLUMNS = {"id", "url", "title", "artist", "lyricist", "composer", "producer", "template", "language", "subtitle_langs", "lyrics_file", "word_timing_file", "logo_file", "prompt_ms"}
+class SongError(Exception):
+    """A problem that stops one song but must not stop the batch."""
+
+
 # Songs selected with --only / positional ids; empty means every manifest row.
 SELECTED: set[str] = set()
 

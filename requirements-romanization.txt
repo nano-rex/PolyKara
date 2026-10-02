@@ -4,3 +4,5 @@ pykakasi
 tojyutping
 hangul-romanize
 indic-transliteration
+# Lets Traditional and Simplified Chinese lyric files agree in the accuracy check.
+zhconv

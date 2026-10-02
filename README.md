@@ -26,7 +26,7 @@ python3 pipeline.py process --reprocess
 python3 pipeline.py process --reprocess --realign
 ```
 
-The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable, such as an interrupted download, is removed and downloaded again. A song that already has usable lyrics (a `lyrics_file`, a downloaded subtitle, or cached external lyrics that parse into lyric lines) makes no subtitle or lyric-provider request. When no lyrics could be found, that is remembered so the same lookups are not repeated on every run; `python3 pipeline.py download --reprocess` tries them again.
+The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable, such as an interrupted download, is removed and downloaded again. Lyrics are collected until the song has at least three usable lyric files (see the accuracy check below); a song that already has them makes no subtitle or lyric-provider request. When every source has been tried, that is remembered so the same lookups are not repeated on every run; `python3 pipeline.py download --reprocess` tries them again.
 
 ### One song failing never stops the batch
 
@@ -76,25 +76,43 @@ pip install -r requirements-align.txt
 
 WhisperX is preferred. Faster-Whisper is used as a lighter CPU/ARM fallback. The automatic model selector reserves a fixed 2 GiB by default: an 8 GiB system receives a 6 GiB model budget. Override the thresholds or `align_model` in `polykara.toml`/`songs.csv` when needed.
 
-Lyrics priority is:
+### Lyric files and the accuracy check
 
-1. `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or a plain `.txt` that is timed from the alignment)
-2. Creator-made YouTube subtitles
-3. Validated synchronized lyrics from configured external providers
-4. YouTube automatic captions in the song's `language` (disable with `lyrics.auto_captions = false`)
-5. Plain lyrics extracted from `lyric_pages`
+Every source is saved to its own file so the files can be compared with each other:
 
-A source without usable lines falls through to the next one. When `subtitle_langs` is empty, only subtitles in the song's `language` are requested.
+| Trust order | Source | File |
+| --- | --- | --- |
+| 1 | `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or plain `.txt`) | the file you name |
+| 2 | Creator-made YouTube subtitles | `work/subtitles/<id>.<lang>.vtt` |
+| 3 | LRCLIB synced lyrics | `work/lyrics/<id>.lrclib.lrc` |
+| 4 | NetEase Cloud Music synced lyrics | `work/lyrics/<id>.netease.lrc` |
+| 5 | YouTube automatic captions in the song's `language` | `work/subtitles/<id>.auto.<lang>.vtt` |
+| 6 | Plain text from LRCLIB, Lyrics.ovh, and each `lyric_pages` URL | `work/lyrics/<id>.<source>.txt` |
+
+A song needs at least three usable lyric files for a proper accuracy check. The download step keeps looking, lyric providers first and YouTube subtitles only if files are still missing, until three exist or every source has been tried. If fewer are available, add a `lyrics_file` or `lyric_pages` (several URLs separated by `|`) in `songs.csv`.
+
+The `lyrics` step compares the files word by word. Lyrics are **verified** when at least three files, including the one used for rendering, agree. Without a `lyrics_file`, the most trusted timed file that the others confirm is used, so one wrong source is outvoted; a `lyrics_file` is always used, and is flagged when the other files contradict it. The step prints each file's agreement, how much of the lyrics was also recognised in the audio, and saves the result to `work/lyrics/<id>.check.json`. `qa` shows the verdict per song.
+
+Songs that are not verified are still produced, with a warning and an entry in the end-of-run list. Change this in `polykara.toml`:
+
+```toml
+[lyrics]
+min_sources = 3
+agreement_threshold = 0.6
+require_verified = true   # skip unverified songs instead of warning
+```
+
+Install `zhconv` (included in `requirements-romanization.txt`) so that Traditional and Simplified Chinese versions of the same lyrics count as agreeing. When `subtitle_langs` is empty, only subtitles in the song's `language` are requested.
 
 LRCLIB is searched with the video title cleaned of decorations such as `(Official Video)`, and the record closest to the video's length is chosen. A warning is printed when the lengths differ by more than five seconds, because the line timing is then likely offset.
 
-External sources include LRCLIB, Lyrics.ovh, and configured public lyric webpages. Webpage extraction reads known lyric containers and does not bypass login, paywalls, CAPTCHAs, or anti-bot controls. Conflicting lyrics are rejected for manual review.
+External sources include LRCLIB, NetEase Cloud Music, Lyrics.ovh, and configured public lyric webpages. Webpage extraction reads known lyric containers and does not bypass login, paywalls, CAPTCHAs, or anti-bot controls.
 
 Configure provider order centrally:
 
 ```toml
 [lyrics]
-sources = ["lrclib", "lyrics.ovh", "webpage"]
+sources = ["lrclib", "netease", "lyrics.ovh", "webpage"]
 ```
 
 An individual `lyric_sources` value in `songs.csv` overrides the global list for that song. `lyric_pages` remains per-song because webpage URLs identify the specific track.
@@ -233,6 +251,7 @@ polykara/providers.py   external lyrics and webpage providers
 polykara/charts.py      regional YouTube chart picker
 polykara/alignment.py   WhisperX/Faster-Whisper alignment
 polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
+polykara/verify.py      lyric file collection and accuracy check
 polykara/ass.py         ASS styles, karaoke tags, and pause cues
 polykara/romanize.py    optional romanization engines
 tests/                  unit tests for parsing, timing, and batch handling

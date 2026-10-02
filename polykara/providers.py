@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from difflib import SequenceMatcher
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError
@@ -11,6 +10,9 @@ from urllib.request import Request, urlopen
 from .config import EXTERNAL_LYRICS, RAW, load_config
 
 USER_AGENT = "PolyKara/1.0 (+https://github.com/nano-rex/PolyKara)"
+NETEASE_HEADERS = {"Referer": "https://music.163.com/"}
+TIMED_LINE = re.compile(r"\s*\[\d+:\d{2}")
+CREDIT_LINE = re.compile(r"\s*(?:\[[\d:.]+\])+\s*[^:：\[\]]{1,20}\s[:：]\s")
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 # Video-title decorations that are not part of the song name: (Official Video), [MV], 【官方】...
 TITLE_NOISE = re.compile(r"\s*[(\[【（][^)\]】）]*(?:\b(?:official|video|mv|m/v|lyrics?|audio|visuali[sz]er|hd|4k|remaster(?:ed)?)\b|官方|完整版|高清|歌词|歌詞|字幕)[^)\]】）]*[)\]】）]", re.IGNORECASE)
@@ -23,8 +25,8 @@ def lyric_sources(row: dict[str, str]) -> list[str]:
     return [str(item).strip().lower() for item in load_config().get("lyrics", {}).get("sources", []) if str(item).strip()]
 
 
-def fetch_json(url: str):
-    with urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=15) as response:
+def fetch_json(url: str, headers: dict[str, str] | None = None):
+    with urlopen(Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})}), timeout=15) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -121,14 +123,19 @@ def metadata_matches(title: str, artist: str, candidate: dict) -> bool:
     return not found_artist or any(name and (name in found_artist or found_artist in name) for name in names)
 
 
-def lrclib_lookup(title: str, artist: str, duration: float | None) -> dict:
-    """Return the LRCLIB record that best fits the song, preferring synced lyrics of the same length."""
+def closest(candidates: list[dict], duration: float | None) -> list[dict]:
+    """Order records by how close their length is to the video's."""
     def distance(item: dict) -> float:
         try:
             return abs(float(item["duration"]) - duration) if duration else 0.0
         except (KeyError, TypeError, ValueError):
             return 1e9
 
+    return sorted(candidates, key=distance)
+
+
+def lrclib_lookup(title: str, artist: str, duration: float | None) -> dict:
+    """Return the LRCLIB record that best fits the song, preferring synced lyrics of the same length."""
     candidates = []
     try:
         candidates.append(fetch_json(f"https://lrclib.net/api/get?{urlencode({'artist_name': artist, 'track_name': clean_title(title)})}"))
@@ -136,58 +143,122 @@ def lrclib_lookup(title: str, artist: str, duration: float | None) -> dict:
         if exc.code != 404:
             raise
     exact = [item for item in candidates if isinstance(item, dict) and item.get("syncedLyrics") and metadata_matches(title, artist, item)]
-    if not exact or distance(exact[0]) > 2:
+    if not exact or (duration and abs(float(exact[0].get("duration") or 0) - duration) > 2):
         # A different cut of the same song has shifted timestamps, so look for a closer one.
         found = fetch_json(f"https://lrclib.net/api/search?{urlencode({'track_name': clean_title(title), 'artist_name': artist})}")
         if isinstance(found, list):
             candidates.extend(found)
     matching = [item for item in candidates if isinstance(item, dict) and metadata_matches(title, artist, item)]
-    synced = sorted((item for item in matching if item.get("syncedLyrics")), key=distance)
+    synced = closest([item for item in matching if item.get("syncedLyrics")], duration)
     return synced[0] if synced else matching[0] if matching else {}
 
 
-def fetch_external_lyrics(row: dict[str, str]) -> Path | None:
-    output = external_lyrics_path(row)
-    if output.exists():
-        print(f"{row['id']}: using cached external lyrics {output.name}")
-        return output
+def netease_lookup(title: str, artist: str, duration: float | None) -> dict:
+    """Return {"lyrics", "duration"} from NetEase Cloud Music's public search, or {} when nothing matches."""
+    query = urlencode({"s": f"{clean_title(title)} {artist}".strip(), "type": 1, "limit": 10, "offset": 0})
+    found = fetch_json(f"https://music.163.com/api/search/get?{query}", NETEASE_HEADERS)
+    songs = (found.get("result") or {}).get("songs") or [] if isinstance(found, dict) else []
+    records = [{"id": song.get("id"), "trackName": song.get("name"), "artistName": ", ".join(str(item.get("name") or "") for item in song.get("artists") or []), "duration": (song.get("duration") or 0) / 1000} for song in songs if isinstance(song, dict)]
+    for record in closest([item for item in records if item["id"] and metadata_matches(title, artist, item)], duration)[:3]:
+        data = fetch_json(f"https://music.163.com/api/song/lyric?{urlencode({'id': record['id'], 'lv': 1, 'kv': 1, 'tv': -1})}", NETEASE_HEADERS)
+        text = str(((data.get("lrc") or {}).get("lyric") or "") if isinstance(data, dict) else "")
+        # NetEase prepends credit lines such as "[00:00.000] 作词 : name"; they are not lyrics.
+        lines = [line for line in text.splitlines() if not CREDIT_LINE.match(line)]
+        if any(TIMED_LINE.match(line) for line in lines):
+            return {"lyrics": "\n".join(lines), "duration": record["duration"]}
+    return {}
+
+
+def provider_files(row: dict[str, str]) -> list[tuple[str, str, Path]]:
+    """Lyric files already fetched for a song as (source, kind, path); kind is "lrc" or "plain"."""
+    sid, found = row["id"], []
+    for name in ("lrclib", "netease"):
+        path = EXTERNAL_LYRICS / f"{sid}.{name}.lrc"
+        # Earlier versions saved the LRCLIB result as <id>.lrc.
+        legacy = external_lyrics_path(row)
+        if path.exists():
+            found.append((name, "lrc", path))
+        elif name == "lrclib" and legacy.exists():
+            found.append((name, "lrc", legacy))
+    for name in ("lrclib", "lyrics-ovh"):
+        path = EXTERNAL_LYRICS / f"{sid}.{name}.txt"
+        if path.exists() and not any(item[0] == name for item in found):
+            found.append((name, "plain", path))
+    found += [(path.name[len(sid) + 1:-4], "plain", path) for path in sorted(EXTERNAL_LYRICS.glob(f"{sid}.webpage*.txt"))]
+    return found
+
+
+def webpage_path(row: dict[str, str], index: int) -> Path:
+    return external_webpage_path(row) if index == 0 else EXTERNAL_LYRICS / f"{row['id']}.webpage-{index + 1}.txt"
+
+
+def warn_duration(row: dict[str, str], source: str, found: object, duration: float | None) -> None:
+    try:
+        difference = abs(float(found) - duration) if duration else 0.0
+    except (TypeError, ValueError):
+        return
+    if difference > 5:
+        print(f"WARN {row['id']}: {source} lyrics are for a recording {difference:.0f}s longer or shorter than this video; line timing may be offset")
+
+
+def fetch_external_lyrics(row: dict[str, str]) -> bool:
+    """Fetch lyrics from every configured source that has no file yet.
+
+    Each source is saved to its own file so the files can be compared with
+    each other. Returns False when a source could not be reached, so the
+    caller knows the lookup is worth repeating.
+    """
+    sid, title, artist = row["id"], row["title"].strip(), row["artist"].strip()
     EXTERNAL_LYRICS.mkdir(parents=True, exist_ok=True)
-    title, artist, lrclib, plain = row["title"].strip(), row["artist"].strip(), {}, []
-    duration = media_duration(row)
+    have = {name for name, _, _ in provider_files(row)}
+    duration, complete = media_duration(row), True
+
+    def save(name: str, suffix: str, text: str) -> None:
+        (EXTERNAL_LYRICS / f"{sid}.{name}.{suffix}").write_text(text.strip() + "\n", encoding="utf-8")
+        print(f"{sid}: saved {'synced' if suffix == 'lrc' else 'plain'} lyrics from {name}")
+
     for name in lyric_sources(row):
         try:
-            if name == "lrclib":
-                lrclib = lrclib_lookup(title, artist, duration)
-                if lrclib.get("plainLyrics"): plain.append(str(lrclib["plainLyrics"]))
-            elif name == "lyrics.ovh":
+            if name == "lrclib" and "lrclib" not in have:
+                record = lrclib_lookup(title, artist, duration)
+                if str(record.get("syncedLyrics") or "").strip():
+                    warn_duration(row, "LRCLIB", record.get("duration"), duration)
+                    save("lrclib", "lrc", str(record["syncedLyrics"]))
+                elif str(record.get("plainLyrics") or "").strip():
+                    save("lrclib", "txt", str(record["plainLyrics"]))
+                else:
+                    print(f"{sid}: lrclib has no lyrics for this song")
+            elif name == "netease" and "netease" not in have:
+                record = netease_lookup(title, artist, duration)
+                if record:
+                    warn_duration(row, "NetEase", record.get("duration"), duration)
+                    save("netease", "lrc", record["lyrics"])
+                else:
+                    print(f"{sid}: netease has no synced lyrics for this song")
+            elif name == "lyrics.ovh" and "lyrics-ovh" not in have:
                 result = fetch_json(f"https://api.lyrics.ovh/v1/{quote(artist, safe='')}/{quote(clean_title(title), safe='')}")
-                if result.get("lyrics"): plain.append(str(result["lyrics"]))
+                if str(result.get("lyrics") or "").strip():
+                    save("lyrics-ovh", "txt", str(result["lyrics"]))
+                else:
+                    print(f"{sid}: lyrics.ovh has no lyrics for this song")
             elif name == "webpage":
-                for page in [item.strip() for item in row.get("lyric_pages", "").split("|") if item.strip()]:
+                for index, page in enumerate(item.strip() for item in row.get("lyric_pages", "").split("|") if item.strip()):
+                    target = webpage_path(row, index)
+                    if target.exists():
+                        continue
                     extracted = extract_lyrics_page(fetch_html(page))
                     if extracted:
-                        plain.append(extracted)
-                        external_webpage_path(row).write_text(extracted + "\n", encoding="utf-8")
-                        print(f"{row['id']}: extracted lyrics section from webpage")
+                        target.write_text(extracted + "\n", encoding="utf-8")
+                        print(f"{sid}: extracted lyrics section from webpage")
+            elif name not in {"lrclib", "netease", "lyrics.ovh", "webpage"}:
+                print(f"{sid}: unknown lyric source {name!r}; expected lrclib, netease, lyrics.ovh, or webpage")
+        except HTTPError as exc:
+            if exc.code == 404:
+                print(f"{sid}: {name} has no lyrics for this song")
             else:
-                print(f"{row['id']}: unknown lyric source {name!r}; expected lrclib, lyrics.ovh, or webpage")
+                complete = False
+                print(f"{sid}: lyric source {name} unavailable ({exc})")
         except Exception as exc:
-            print(f"{row['id']}: lyric source {name} unavailable ({exc})")
-    synced = str(lrclib.get("syncedLyrics") or "").strip()
-    if not synced:
-        print(f"{row['id']}: no synced lyrics found from configured external sources")
-        return None
-    comparisons = [SequenceMatcher(None, lyric_text(synced), lyric_text(item)).ratio() for item in plain if lyric_text(item)]
-    if comparisons and max(comparisons) < 0.55:
-        print(f"SKIP {row['id']}: external lyric sources disagree; review lyrics manually")
-        return None
-    try:
-        difference = abs(float(lrclib["duration"]) - duration) if duration else None
-    except (KeyError, TypeError, ValueError):
-        difference = None
-    if difference is not None and difference > 5:
-        print(f"WARN {row['id']}: LRCLIB lyrics are for a recording {difference:.0f}s longer or shorter than this video; line timing may be offset")
-    output.write_text(synced + "\n", encoding="utf-8")
-    (EXTERNAL_LYRICS / f"{row['id']}.json").write_text(json.dumps({"source": "lrclib", "validation_sources": lyric_sources(row), "validation_similarity": max(comparisons) if comparisons else None, "title": lrclib.get("trackName", title), "artist": lrclib.get("artistName", artist), "duration_difference_s": difference}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"{row['id']}: downloaded validated synced lyrics from LRCLIB")
-    return output
+            complete = False
+            print(f"{sid}: lyric source {name} unavailable ({exc})")
+    return complete
