@@ -53,11 +53,11 @@ class Marker:
 class DownloadSkipTest(unittest.TestCase):
     def setUp(self):
         self.commands = []
-        self.saved = {name: getattr(pipeline, name) for name in ("run", "find_source", "playable", "require_current_ytdlp", "check_lyrics", "lyrics_marker")}
+        self.saved = {name: getattr(pipeline, name) for name in ("run", "find_source", "media_problem", "require_current_ytdlp", "check_lyrics", "lyrics_marker")}
         pipeline.run = lambda cmd, dry_run=False, cwd=None: self.commands.append("subtitles" if "--skip-download" in cmd else "media")
         pipeline.require_current_ytdlp = lambda: None
         pipeline.find_source = lambda sid: pipeline.RAW / "demo.mp4"
-        pipeline.playable = lambda path: True
+        pipeline.media_problem = lambda path: None
         pipeline.check_lyrics = lambda row: lyric_check(3)
         pipeline.lyrics_marker = lambda sid: Marker(False)
         self.row = {"id": "demo", "url": "https://example.invalid/watch", "language": "en", "subtitle_langs": ""}
@@ -79,7 +79,7 @@ class DownloadSkipTest(unittest.TestCase):
         self.assertEqual(self.download(), ["media"])
 
     def test_unplayable_media_is_downloaded_again(self):
-        pipeline.playable = lambda path: False
+        pipeline.media_problem = lambda path: "it has no audio track"
         self.assertEqual(self.download(), ["media"])
 
     def test_missing_lyrics_are_fetched_without_touching_media(self):
@@ -99,6 +99,25 @@ class DownloadSkipTest(unittest.TestCase):
         pipeline.check_lyrics = lambda row: lyric_check(1)
         pipeline.lyrics_marker = lambda sid: Marker(True)
         self.assertEqual(set(self.download(force=True)), {"subtitles"})
+
+
+class MediaProblemTest(unittest.TestCase):
+    def probe(self, stdout, returncode=0):
+        saved = pipeline.subprocess.run
+        pipeline.subprocess.run = lambda *args, **kwargs: subprocess.CompletedProcess(args, returncode, stdout, "")
+        try:
+            return pipeline.media_problem(pipeline.RAW / "demo.mp4")
+        finally:
+            pipeline.subprocess.run = saved
+
+    def test_video_with_audio_is_usable(self):
+        self.assertIsNone(self.probe('{"streams": [{"codec_type": "video"}, {"codec_type": "audio"}], "format": {"duration": "200.5"}}'))
+
+    def test_video_only_file_is_rejected(self):
+        self.assertEqual(self.probe('{"streams": [{"codec_type": "video"}], "format": {"duration": "200.5"}}'), "it has no audio track")
+
+    def test_unreadable_file_is_rejected(self):
+        self.assertEqual(self.probe("", returncode=1), "it cannot be read")
 
 
 if __name__ == "__main__":

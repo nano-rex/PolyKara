@@ -88,17 +88,31 @@ def download_subtitles(row: dict[str, str], dry_run: bool) -> None:
         marker.write_text("", encoding="utf-8")
 
 
-def playable(path: Path) -> bool:
-    """True when ffprobe can open the file and reports a duration (a truncated download fails this)."""
+def media_problem(path: Path) -> str | None:
+    """Why a media file cannot be used, or None when it has video, audio, and a duration."""
     try:
-        result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False, timeout=60)
+        result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of", "json", str(path)], capture_output=True, text=True, check=False, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         # Without a verdict the file is kept rather than downloaded again.
-        return True
+        return None
     try:
-        return result.returncode == 0 and float(result.stdout.strip().splitlines()[0]) > 0
-    except (ValueError, IndexError):
-        return False
+        data = json.loads(result.stdout or "{}")
+        streams = {stream.get("codec_type") for stream in data.get("streams", [])}
+        duration = float(data.get("format", {}).get("duration") or 0)
+    except (ValueError, TypeError, AttributeError):
+        return "it cannot be read"
+    if result.returncode != 0 or duration <= 0:
+        return "it cannot be read"
+    # A video-only file is what an interrupted or failed merge leaves behind.
+    if "audio" not in streams:
+        return "it has no audio track"
+    if "video" not in streams:
+        return "it has no video track"
+    return None
+
+
+def playable(path: Path) -> bool:
+    return media_problem(path) is None
 
 
 def lyrics_marker(sid: str) -> Path:
@@ -157,8 +171,9 @@ def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> No
     """Fetch what a song is still missing. Media and lyrics that are already here cost no network request."""
     sid = row["id"]
     media = find_source(sid)
-    if media is not None and not playable(media):
-        print(f"{sid}: {media.name} is not playable; removing it and downloading again")
+    problem = media_problem(media) if media is not None else None
+    if problem:
+        print(f"{sid}: {media.name} is not usable ({problem}); removing it and downloading again")
         if not dry_run:
             media.unlink()
         media = None
@@ -167,8 +182,13 @@ def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> No
     else:
         require_current_ytdlp()
         run(["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--write-info-json", "--retries", "3", "--fragment-retries", "3", "--sleep-requests", "1", "--no-overwrites", "-o", str(RAW / f"{sid}.%(ext)s"), row["url"]], dry_run)
-        if not dry_run and find_source(sid) is None:
-            raise SongError("yt-dlp finished without producing a media file")
+        if not dry_run:
+            media = find_source(sid)
+            if media is None:
+                raise SongError("yt-dlp finished without producing a merged media file; check that ffmpeg is installed")
+            problem = media_problem(media)
+            if problem:
+                raise SongError(f"downloaded {media.name} is not usable ({problem}); update yt-dlp and install its JavaScript runtime (deno), then rerun")
     download_lyrics(row, dry_run, force)
 
 
@@ -186,6 +206,9 @@ def download(dry_run: bool, trending: bool = False, regions: str = "", pick: boo
 def normalize_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     sid = row["id"]
     media, audio = source(sid), AUDIO / f"{sid}.flac"
+    problem = media_problem(media)
+    if problem:
+        raise SongError(f"{media.name} is not usable ({problem}); run download again to replace it")
     if not force and audio.exists() and audio.stat().st_mtime >= media.stat().st_mtime:
         print(f"{sid}: normalized audio is up to date")
         return
