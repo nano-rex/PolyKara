@@ -48,8 +48,10 @@ Typical manual changes include:
 1. `song.auto.ass` may be regenerated at any time.
 2. `song.edited.ass` must never be overwritten automatically.
 3. Rendering uses `song.edited.ass` when it exists; otherwise it uses `song.auto.ass`.
+   An edited file that is newer than the MP4 is rendered again automatically.
 4. Final MP4 files are derivatives and can always be recreated.
 5. Keep the original LRC/KRC and timing JSON beside the ASS files.
 
 This means a small correction requires only opening the edited ASS file and
-rerunning the render step; downloading and alignment do not need to run again.
+rerunning the render step for that song (`python3 pipeline.py render <id>`);
+downloading and alignment do not need to run again.

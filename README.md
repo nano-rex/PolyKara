@@ -17,10 +17,29 @@ python3 pipeline.py check
 python3 pipeline.py process
 ```
 
-The end-to-end command downloads media and subtitles, retrieves external lyrics, normalizes audio, creates word-level timing, generates ASS, and renders MP4. Existing outputs are skipped in non-interactive runs; use `--reprocess` to render them again.
+The end-to-end command downloads media and subtitles, retrieves external lyrics, normalizes audio, creates word-level timing, generates ASS, and renders MP4.
+
+Finished work is reused: a song whose MP4 already exists is skipped, downloaded media and existing word timing are not fetched or computed again, and a song is rendered again automatically when its `.edited.ass` is newer than its MP4. Use `--reprocess` to rebuild the ASS and MP4 anyway, and add `--realign` to repeat word alignment as well.
 
 ```bash
 python3 pipeline.py process --reprocess
+python3 pipeline.py process --reprocess --realign
+```
+
+### One song failing never stops the batch
+
+Every step runs song by song. When a step fails for one song (a download error, a missing lyrics file, an alignment or FFmpeg error), PolyKara prints `SKIP <id>: <step> failed (<reason>)`, leaves that song out of the remaining steps, and continues with the next song. A summary at the end lists each skipped song with its reason, and the command exits with status 1 so scripts can notice. Fix the cause and rerun the same command; only the unfinished songs are processed.
+
+Only problems that affect every song stop the run: a missing `yt-dlp`/`ffmpeg`, or an invalid `songs.csv` or `polykara.toml`.
+
+### Working on selected songs
+
+Every command accepts song ids, either after the command or with `--only`:
+
+```bash
+python3 pipeline.py process my-song another-song
+python3 pipeline.py render --reprocess --only my-song
+python3 pipeline.py edit my-song
 ```
 
 ## Regional YouTube music charts
@@ -57,9 +76,15 @@ WhisperX is preferred. Faster-Whisper is used as a lighter CPU/ARM fallback. The
 
 Lyrics priority is:
 
-1. Downloaded YouTube subtitles
-2. Validated synchronized lyrics from configured external providers
-3. `lyrics_file` in `songs.csv`
+1. `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or a plain `.txt` that is timed from the alignment)
+2. Creator-made YouTube subtitles
+3. Validated synchronized lyrics from configured external providers
+4. YouTube automatic captions in the song's `language` (disable with `lyrics.auto_captions = false`)
+5. Plain lyrics extracted from `lyric_pages`
+
+A source without usable lines falls through to the next one. When `subtitle_langs` is empty, only subtitles in the song's `language` are requested.
+
+LRCLIB is searched with the video title cleaned of decorations such as `(Official Video)`, and the record closest to the video's length is chosen. A warning is printed when the lengths differ by more than five seconds, because the line timing is then likely offset.
 
 External sources include LRCLIB, Lyrics.ovh, and configured public lyric webpages. Webpage extraction reads known lyric containers and does not bypass login, paywalls, CAPTCHAs, or anti-bot controls. Conflicting lyrics are rejected for manual review.
 
@@ -78,7 +103,15 @@ Enhanced LRC supports word or syllable marks:
 [00:12.00]<00:12.00>ありがとう<00:12.80>ございます
 ```
 
+Inline marks are kept as the word timing for that line, so a fully marked file needs no alignment. `[offset:±ms]` and empty timestamp lines (`[01:23.00]` with no text, marking where the previous line ends) are honoured.
+
 Songs without word-level timing are skipped rather than rendered with false karaoke highlighting.
+
+### How word timing is applied
+
+Recognised words are matched to the lyric text, not just counted, so an extra or missing recognised word does not shift the rest of the line. Words the recogniser missed are placed between their matched neighbours. Chinese, Japanese, and Korean lyrics are highlighted per character. Lines where nothing was recognised use evenly spaced timing and are listed after the `lyrics` step, so you know which lines to check in the editor.
+
+The highlight starts when each word is actually sung: the wait before the first word and pauses between words are written into the ASS as empty `\k` syllables. `[timing]` in `polykara.toml` also controls how early a line appears (`lead_in_ms`) and when a line followed by a long instrumental leaves the screen (`max_tail_ms`, `tail_hold_ms`).
 
 ### Romanized sing-along text
 
@@ -135,6 +168,18 @@ enabled_regions = ["my", "sg", "jp", "us"]
 extend_intro = true
 ```
 
+Add a logo to every video with `[logo]`, or per song with the `logo_file` column in `songs.csv`:
+
+```toml
+[logo]
+file = "assets/logo.png"
+width = 220
+position = "top-right"   # top/bottom/middle + left/right/center
+opacity = 0.9
+```
+
+Encoder settings live in `[render]` (`video_codec`, `preset`, `crf`, `pixel_format`, `audio_codec`, `audio_bitrate`, `extra_args`).
+
 When `extend_intro` is enabled, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
 
 Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_memory_gib = 2` reserves a fixed 2 GiB for the system, so an 8 GiB machine receives a 6 GiB model-selection budget. This is a selection policy, not a hard operating-system memory limit.
@@ -159,7 +204,9 @@ Create editable copies in Aegisub or Subtitle Edit:
 python3 pipeline.py edit
 ```
 
-Check processing state:
+After saving changes to `work/ass/<id>.edited.ass`, run `python3 pipeline.py render <id>`; a song whose edited ASS is newer than its MP4 is rendered again without `--reprocess`. The edited file is never overwritten.
+
+Check processing state (media, lyric source, word timing, ASS coverage, and whether the MP4 is stale):
 
 ```bash
 python3 pipeline.py qa
@@ -185,6 +232,16 @@ polykara/charts.py      regional YouTube chart picker
 polykara/alignment.py   WhisperX/Faster-Whisper alignment
 polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
 polykara/ass.py         ASS styles, karaoke tags, and pause cues
+polykara/romanize.py    optional romanization engines
+tests/                  unit tests for parsing, timing, and batch handling
+```
+
+## Tests
+
+The parsing, timing, and ASS logic has unit tests that need no media, network, or extra packages:
+
+```bash
+python3 -m unittest discover -s tests -t .
 ```
 
 Respect the terms of service and copyright requirements of every media and lyrics source.
