@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -116,9 +117,11 @@ def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> 
     if len(report.files) >= report.min_sources and not force:
         # Usable means the file parses into lyric lines, the counterpart of a playable video.
         print(f"{sid}: {len(report.files)} usable lyric files found; skipping lyric download")
+        report_check(sid, report, dry_run, enforce=False)
         return
     if lyrics_marker(sid).exists() and not force:
         print(f"{sid}: {len(report.files)} of {report.min_sources} lyric files; every source was already tried (download --reprocess tries again)")
+        report_check(sid, report, dry_run, enforce=False)
         return
     print(f"{sid}: {len(report.files)} of {report.min_sources} lyric files; looking for more")
     # Subtitles and external lyrics are optional inputs: report problems and carry on.
@@ -145,8 +148,9 @@ def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> 
     if complete:
         lyrics_marker(sid).write_text("", encoding="utf-8")
     report = check_lyrics(row)
+    report_check(sid, report, dry_run, enforce=False)
     if len(report.files) < report.min_sources:
-        print(f"WARN {sid}: only {len(report.files)} lyric file(s) available, {report.min_sources} needed for an accuracy check; add a lyrics_file or lyric_pages in songs.csv")
+        print(f"{sid}: to reach {report.min_sources} lyric files, add a lyrics_file or lyric_pages (URLs separated by |) in songs.csv")
 
 
 def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
@@ -220,22 +224,35 @@ def lyric_source(row: dict[str, str]) -> tuple[str, str, Path, list] | None:
     return (primary.kind, primary.label, primary.path, primary.entries) if primary else None
 
 
-def report_check(sid: str, report: LyricCheck, audio: float | None, dry_run: bool) -> None:
-    """Print and save the accuracy check; raise when unverified lyrics are not allowed."""
-    others = [f"{item.name} {item.score:.0%}{'' if item.agrees else ' (differs)'}" for item in report.files if item is not report.primary]
-    print(f"{sid}: lyric check: {len(report.files)} file(s); compared with {report.primary.name}: {', '.join(others) or 'nothing to compare'}")
-    if audio is not None:
-        print(f"{sid}: {audio:.0%} of the lyric words were also recognised in the audio")
-    if not dry_run:
-        EXTERNAL_LYRICS.mkdir(parents=True, exist_ok=True)
-        (EXTERNAL_LYRICS / f"{sid}.check.json").write_text(json.dumps({**report.as_dict(), "audio_agreement": None if audio is None else round(audio, 3)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if report.verified:
-        print(f"{sid}: lyrics verified, {report.agreeing} lyric files agree")
+def save_check(sid: str, report: LyricCheck, audio: float | None = None) -> None:
+    EXTERNAL_LYRICS.mkdir(parents=True, exist_ok=True)
+    (EXTERNAL_LYRICS / f"{sid}.check.json").write_text(json.dumps({**report.as_dict(), "audio_agreement": None if audio is None else round(audio, 3)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def report_check(sid: str, report: LyricCheck, dry_run: bool, enforce: bool = True) -> None:
+    """Print and save the accuracy check. It only needs the lyric files, not the audio or alignment."""
+    if report.primary is None:
+        print(f"WARN {sid}: lyric check: no usable lyric file")
         return
-    if load_config()["lyrics"].get("require_verified", False):
+    print(f"{sid}: lyric check: {len(report.files)} usable file(s), rendering from {report.primary.name} ({report.primary.path.name})")
+    for item in report.files:
+        if item is not report.primary:
+            print(f"{sid}:   {item.name} ({item.path.name}): {item.score:.0%} agreement{'' if item.agrees else ' -> DIFFERS'}")
+    if not dry_run:
+        save_check(sid, report)
+    if report.verified:
+        print(f"{sid}: lyrics VERIFIED, {report.agreeing} lyric files agree")
+        UNVERIFIED.pop(sid, None)
+        return
+    if enforce and load_config()["lyrics"].get("require_verified", False):
         raise SongError(f"lyrics not verified: {report.problem()}")
     UNVERIFIED[sid] = report.problem()
     print(f"WARN {sid}: lyrics NOT verified: {report.problem()}")
+
+
+def verify(dry_run: bool) -> None:
+    """Run only the lyric accuracy check; it reads the lyric files already on disk."""
+    each("verify", rows(), lambda row: report_check(row["id"], check_lyrics(row), dry_run, enforce=False))
 
 
 def needs_alignment(kind: str, entries: list) -> bool:
@@ -251,6 +268,9 @@ def align_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     found = lyric_source(row)
     if found is None:
         raise SongError("no lyrics_file, downloaded subtitle, or external lyrics to time")
+    report = check_lyrics(row)
+    if not report.verified and load_config()["lyrics"].get("require_verified", False):
+        raise SongError(f"lyrics not verified: {report.problem()}")
     if not needs_alignment(found[0], found[3]):
         print(f"{sid}: lyrics already carry word timing; alignment not needed")
         return
@@ -274,7 +294,8 @@ def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
         raise SongError("no lyrics_file, downloaded subtitle, or external lyrics")
     kind, label, path, entries = report.primary.kind, report.primary.label, report.primary.path, report.primary.entries
     estimated: list[int] = []
-    audio = None
+    # The accuracy check comes first: it must be visible even when alignment later fails.
+    report_check(sid, report, dry_run)
     if needs_alignment(kind, entries):
         timing_path = word_json(row)
         if timing_path is None:
@@ -290,13 +311,15 @@ def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
         timing, units = load_config()["timing"], load_units(timing_path)
         # The recognised audio is an independent witness that these are the words of this recording.
         audio = agreement(report.primary.tokens, tuple(unit[2] for unit in units))
+        print(f"{sid}: {audio:.0%} of the lyric words were also recognised in the audio")
+        if not dry_run:
+            save_check(sid, report, audio)
         if kind == "plain":
             entries = plain_entries(path.read_text(encoding="utf-8-sig"), units)
         else:
             entries = time_entries(entries, units, int(timing.get("max_tail_ms", 0)), int(timing.get("tail_hold_ms", 1000)), estimated)
     if not entries:
         raise SongError(f"no timed lines found in {path}")
-    report_check(sid, report, audio, dry_run)
     text, target = ass(row, entries), auto_path(sid)
     # Leave an unchanged file alone so its modification time keeps meaning "lyrics changed".
     if not dry_run and not (target.exists() and target.read_text(encoding="utf-8") == text):
@@ -481,6 +504,11 @@ def process(dry_run: bool, force: bool, realign: bool = False) -> None:
     print("== check ==")
     # yt-dlp is only required when some song still has to be downloaded.
     check(need_ytdlp=any(find_source(row["id"]) is None for row in song_rows))
+    if not song_rows:
+        print("Nothing to do: every song already has a final MP4. Use --reprocess to build them again.")
+        return
+    if shutil.which("whisperx") is None and importlib.util.find_spec("faster_whisper") is None and any(word_json(row) is None for row in song_rows):
+        print("WARN no aligner is installed (pip install -r requirements-align.txt): songs without word timing cannot be rendered")
     for directory in (RAW, SUBTITLES, METADATA, EXTERNAL_LYRICS):
         directory.mkdir(parents=True, exist_ok=True)
     steps: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
@@ -511,7 +539,7 @@ def summary() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
+    parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
     parser.add_argument("songs", nargs="*", help="optional song ids from songs.csv; default is every song")
     parser.add_argument("--only", default="", help="comma-separated song ids to work on (same as listing them after the command)")
     parser.add_argument("--dry-run", action="store_true")
@@ -525,6 +553,7 @@ def main() -> int:
     select(args.songs + args.only.split(","))
     if args.command == "check": check()
     elif args.command == "download": download(args.dry_run, args.trending, args.regions, args.pick, args.reprocess)
+    elif args.command == "verify": verify(args.dry_run)
     elif args.command == "normalize": normalize(args.dry_run, args.reprocess)
     elif args.command == "align": align_stage(args.dry_run, args.reprocess)
     elif args.command == "lyrics": lyrics(args.dry_run)
