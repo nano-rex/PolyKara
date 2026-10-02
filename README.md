@@ -26,7 +26,7 @@ python3 pipeline.py process --reprocess
 python3 pipeline.py process --reprocess --realign
 ```
 
-A song whose video is already in `work/raw` and playable (checked locally with `ffprobe`) is skipped by the download step without calling `yt-dlp` or any lyric provider. A file that is not playable, such as an interrupted download, is removed and downloaded again. `python3 pipeline.py download --reprocess` retries subtitles and any external lyrics still missing for songs that are already downloaded.
+The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable, such as an interrupted download, is removed and downloaded again. A song that already has usable lyrics (a `lyrics_file`, a downloaded subtitle, or cached external lyrics that parse into lyric lines) makes no subtitle or lyric-provider request. When no lyrics could be found, that is remembered so the same lookups are not repeated on every run; `python3 pipeline.py download --reprocess` tries them again.
 
 ### One song failing never stops the batch
 

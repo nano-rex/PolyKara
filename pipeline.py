@@ -101,7 +101,54 @@ def playable(path: Path) -> bool:
         return False
 
 
+def lyrics_marker(sid: str) -> Path:
+    """Records that every lyric source was tried for a song, so a miss is not requested again each run."""
+    return EXTERNAL_LYRICS / f"{sid}.checked"
+
+
+def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
+    """Fetch subtitles and external lyrics unless the song already has usable lyrics."""
+    sid = row["id"]
+    try:
+        found = lyric_source(row)
+    except SongError as exc:
+        print(f"WARN {sid}: {exc}")
+        return
+    if found is not None and not force:
+        # Usable means the file parses into lyric lines, the counterpart of a playable video.
+        print(f"{sid}: lyrics found and usable ({found[1]}: {found[2].name}); skipping lyric download")
+        return
+    if lyrics_marker(sid).exists() and not force:
+        print(f"{sid}: no lyrics were available last time; skipping (download --reprocess tries again)")
+        return
+    # Subtitles and external lyrics are optional inputs: report problems and carry on.
+    complete = True
+    try:
+        require_current_ytdlp()
+        if force and not dry_run:
+            (SUBTITLES / f"{sid}.checked").unlink(missing_ok=True)
+        download_subtitles(row, dry_run)
+    except (subprocess.CalledProcessError, OSError, SystemExit) as exc:
+        complete = False
+        print(f"WARN {sid}: subtitle download failed ({describe(exc)}); continuing with other lyric sources")
+    if dry_run:
+        return
+    (METADATA / f"{sid}.json").write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        cached = external_lyrics_path(row)
+        if cached.exists() and not lrc(cached):
+            print(f"{sid}: cached {cached.name} has no lyric lines; looking it up again")
+            cached.unlink()
+        fetch_external_lyrics(row)
+    except Exception as exc:
+        complete = False
+        print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
+    if complete:
+        lyrics_marker(sid).write_text("", encoding="utf-8")
+
+
 def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
+    """Fetch what a song is still missing. Media and lyrics that are already here cost no network request."""
     sid = row["id"]
     media = find_source(sid)
     if media is not None and not playable(media):
@@ -109,29 +156,14 @@ def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> No
         if not dry_run:
             media.unlink()
         media = None
-    if media is not None and not force:
-        # Nothing is requested from YouTube or the lyric providers for a song that is already here.
-        print(f"{sid}: media found and playable; skipping download")
-        return
-    require_current_ytdlp()
-    if media is None:
+    if media is not None:
+        print(f"{sid}: media found and playable; skipping media download")
+    else:
+        require_current_ytdlp()
         run(["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--write-info-json", "--retries", "3", "--fragment-retries", "3", "--sleep-requests", "1", "--no-overwrites", "-o", str(RAW / f"{sid}.%(ext)s"), row["url"]], dry_run)
         if not dry_run and find_source(sid) is None:
             raise SongError("yt-dlp finished without producing a media file")
-    # Subtitles and external lyrics are optional inputs: report problems and carry on.
-    try:
-        if force and not dry_run:
-            (SUBTITLES / f"{sid}.checked").unlink(missing_ok=True)
-        download_subtitles(row, dry_run)
-    except (subprocess.CalledProcessError, OSError) as exc:
-        print(f"WARN {sid}: subtitle download failed ({describe(exc)}); continuing with other lyric sources")
-    if dry_run:
-        return
-    (METADATA / f"{sid}.json").write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        fetch_external_lyrics(row)
-    except Exception as exc:
-        print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
+    download_lyrics(row, dry_run, force)
 
 
 def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False, force: bool = False) -> None:
