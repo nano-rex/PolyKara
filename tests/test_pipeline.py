@@ -36,5 +36,39 @@ class BatchIsolationTest(unittest.TestCase):
         self.assertEqual(pipeline.summary(), 0)
 
 
+class DownloadSkipTest(unittest.TestCase):
+    def setUp(self):
+        self.commands = []
+        self.saved = {name: getattr(pipeline, name) for name in ("run", "find_source", "playable", "require_current_ytdlp")}
+        pipeline.run = lambda cmd, dry_run=False, cwd=None: self.commands.append(cmd[0])
+        pipeline.require_current_ytdlp = lambda: self.commands.append("version-check")
+        self.row = {"id": "demo", "url": "https://example.invalid/watch", "language": "en", "subtitle_langs": ""}
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(pipeline, name, value)
+
+    def download(self, **options):
+        with contextlib.redirect_stdout(io.StringIO()):
+            pipeline.download_song(self.row, True, **options)
+
+    def test_existing_playable_media_runs_nothing(self):
+        pipeline.find_source = lambda sid: pipeline.RAW / "demo.mp4"
+        pipeline.playable = lambda path: True
+        self.download()
+        self.assertEqual(self.commands, [])
+
+    def test_missing_media_is_downloaded(self):
+        pipeline.find_source = lambda sid: None
+        self.download()
+        self.assertEqual(self.commands[:2], ["version-check", "yt-dlp"])
+
+    def test_unplayable_media_is_downloaded_again(self):
+        pipeline.find_source = lambda sid: pipeline.RAW / "demo.mp4"
+        pipeline.playable = lambda path: False
+        self.download()
+        self.assertEqual(self.commands[:2], ["version-check", "yt-dlp"])
+
+
 if __name__ == "__main__":
     unittest.main()

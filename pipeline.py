@@ -88,16 +88,40 @@ def download_subtitles(row: dict[str, str], dry_run: bool) -> None:
         marker.write_text("", encoding="utf-8")
 
 
-def download_song(row: dict[str, str], dry_run: bool) -> None:
+def playable(path: Path) -> bool:
+    """True when ffprobe can open the file and reports a duration (a truncated download fails this)."""
+    try:
+        result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # Without a verdict the file is kept rather than downloaded again.
+        return True
+    try:
+        return result.returncode == 0 and float(result.stdout.strip().splitlines()[0]) > 0
+    except (ValueError, IndexError):
+        return False
+
+
+def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     sid = row["id"]
-    if find_source(sid) is not None:
-        print(f"{sid}: media already downloaded")
-    else:
+    media = find_source(sid)
+    if media is not None and not playable(media):
+        print(f"{sid}: {media.name} is not playable; removing it and downloading again")
+        if not dry_run:
+            media.unlink()
+        media = None
+    if media is not None and not force:
+        # Nothing is requested from YouTube or the lyric providers for a song that is already here.
+        print(f"{sid}: media found and playable; skipping download")
+        return
+    require_current_ytdlp()
+    if media is None:
         run(["yt-dlp", "--no-playlist", "--restrict-filenames", "--format", "bv*+ba/b", "--merge-output-format", "mp4", "--write-info-json", "--retries", "3", "--fragment-retries", "3", "--sleep-requests", "1", "--no-overwrites", "-o", str(RAW / f"{sid}.%(ext)s"), row["url"]], dry_run)
         if not dry_run and find_source(sid) is None:
             raise SongError("yt-dlp finished without producing a media file")
     # Subtitles and external lyrics are optional inputs: report problems and carry on.
     try:
+        if force and not dry_run:
+            (SUBTITLES / f"{sid}.checked").unlink(missing_ok=True)
         download_subtitles(row, dry_run)
     except (subprocess.CalledProcessError, OSError) as exc:
         print(f"WARN {sid}: subtitle download failed ({describe(exc)}); continuing with other lyric sources")
@@ -110,16 +134,15 @@ def download_song(row: dict[str, str], dry_run: bool) -> None:
         print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
 
 
-def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False) -> None:
+def download(dry_run: bool, trending: bool = False, regions: str = "", pick: bool = False, force: bool = False) -> None:
     if trending:
         selected_regions = [item.strip().lower() for item in regions.split(",") if item.strip()] if regions else enabled_regions()
         add_selected(selected_regions, pick)
         return
     song_rows = rows()
-    require_current_ytdlp()
     for directory in (RAW, SUBTITLES, METADATA, EXTERNAL_LYRICS):
         directory.mkdir(parents=True, exist_ok=True)
-    each("download", song_rows, lambda row: download_song(row, dry_run))
+    each("download", song_rows, lambda row: download_song(row, dry_run, force))
 
 
 def normalize_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
@@ -416,8 +439,6 @@ def qa() -> None:
 
 
 def process(dry_run: bool, force: bool, realign: bool = False) -> None:
-    print("== check ==")
-    check()
     song_rows = rows()
     if not force:
         pending = []
@@ -428,6 +449,9 @@ def process(dry_run: bool, force: bool, realign: bool = False) -> None:
             else:
                 pending.append(row)
         song_rows = pending
+    print("== check ==")
+    # yt-dlp is only required when some song still has to be downloaded.
+    check(need_ytdlp=any(find_source(row["id"]) is None for row in song_rows))
     for directory in (RAW, SUBTITLES, METADATA, EXTERNAL_LYRICS):
         directory.mkdir(parents=True, exist_ok=True)
     steps: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
@@ -458,7 +482,7 @@ def main() -> int:
     parser.add_argument("songs", nargs="*", help="optional song ids from songs.csv; default is every song")
     parser.add_argument("--only", default="", help="comma-separated song ids to work on (same as listing them after the command)")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--reprocess", action="store_true", help="redo the step even when its output already exists (render, normalize, align, process)")
+    parser.add_argument("--reprocess", action="store_true", help="redo the step even when its output already exists (download, normalize, align, render, process)")
     parser.add_argument("--realign", action="store_true", help="with process: also repeat word alignment instead of reusing existing timing")
     parser.add_argument("--drop-source", action="store_true")
     parser.add_argument("--trending", action="store_true", help="show regional YouTube Top Songs and add selected entries to songs.csv")
@@ -467,7 +491,7 @@ def main() -> int:
     args = parser.parse_intermixed_args()
     select(args.songs + args.only.split(","))
     if args.command == "check": check()
-    elif args.command == "download": download(args.dry_run, args.trending, args.regions, args.pick)
+    elif args.command == "download": download(args.dry_run, args.trending, args.regions, args.pick, args.reprocess)
     elif args.command == "normalize": normalize(args.dry_run, args.reprocess)
     elif args.command == "align": align_stage(args.dry_run, args.reprocess)
     elif args.command == "lyrics": lyrics(args.dry_run)

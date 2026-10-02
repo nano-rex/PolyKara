@@ -26,6 +26,8 @@ python3 pipeline.py process --reprocess
 python3 pipeline.py process --reprocess --realign
 ```
 
+A song whose video is already in `work/raw` and playable (checked locally with `ffprobe`) is skipped by the download step without calling `yt-dlp` or any lyric provider. A file that is not playable, such as an interrupted download, is removed and downloaded again. `python3 pipeline.py download --reprocess` retries subtitles and any external lyrics still missing for songs that are already downloaded.
+
 ### One song failing never stops the batch
 
 Every step runs song by song. When a step fails for one song (a download error, a missing lyrics file, an alignment or FFmpeg error), PolyKara prints `SKIP <id>: <step> failed (<reason>)`, leaves that song out of the remaining steps, and continues with the next song. A summary at the end lists each skipped song with its reason, and the command exits with status 1 so scripts can notice. Fix the cause and rerun the same command; only the unfinished songs are processed.

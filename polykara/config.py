@@ -80,6 +80,7 @@ def run(cmd: list[str], dry_run: bool = False, cwd: Path | None = None) -> None:
         subprocess.run(cmd, check=True, cwd=cwd)
 
 
+@functools.lru_cache(maxsize=1)
 def require_current_ytdlp() -> None:
     try:
         result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, check=False)

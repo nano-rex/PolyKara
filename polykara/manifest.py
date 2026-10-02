@@ -70,7 +70,7 @@ def source(sid: str) -> Path:
     return path
 
 
-def check() -> None:
+def check(need_ytdlp: bool = True) -> None:
     print(f"Songs: {len(rows())}")
     tools = ("yt-dlp", "ffmpeg", "ffprobe")
     for tool in tools:
@@ -82,6 +82,8 @@ def check() -> None:
     print(f"romanization engines: {', '.join(available) or 'none (optional)'}")
     base = WORK if WORK.exists() else ROOT
     print(f"free disk space: {shutil.disk_usage(base).free / 1024 ** 3:.1f} GiB in {base}")
-    if any(shutil.which(tool) is None for tool in tools):
-        raise SystemExit(1)
-    require_current_ytdlp()
+    required = tools if need_ytdlp else tools[1:]
+    if any(shutil.which(tool) is None for tool in required):
+        raise SystemExit("Required tools are missing: " + ", ".join(tool for tool in required if shutil.which(tool) is None))
+    if need_ytdlp:
+        require_current_ytdlp()
