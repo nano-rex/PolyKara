@@ -137,7 +137,7 @@ The highlight starts when each word is actually sung: the wait before the first 
 
 ### Two-row lyrics for non-Latin scripts
 
-Lyrics written in a non-Latin script are shown on two rows: the romanized reading on top and the original characters directly below it. Both rows are highlighted together, each romanized piece filling while the characters it reads are sung. Lines written only in Latin letters keep a single row.
+Lyrics written in a non-Latin script get their reading directly above the characters it belongs to: pinyin above each Chinese character, romaji above each Japanese word, romanization above each Korean syllable, and so on. The reading and its characters are highlighted together. Characters are spaced so that a long reading such as `zhuang1` never runs into its neighbour. Lines written only in Latin letters keep a single row.
 
 | Script | Romanization | Engine |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ pip install -r requirements-romanization.txt
 
 If an engine is missing, the `lyrics` step prints which package to install and that line keeps a single row. Japanese readings from `pykakasi` are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); correct them in the edited ASS.
 
-The romanized row is placed automatically just above the lyric row, from the `[lyric]` size and margins (`romanization.margin_v = "auto"`, `gap` in pixels). Set `margin_v` to a number to place it yourself, `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
+Each line is laid out from the font widths libass will use, measured with Pillow and fontconfig when they are installed (`pip install pillow`); without them a safe estimate is used and characters are spaced a little wider. A line too long for the screen is scaled down to fit. `romanization.ruby_spacing` sets the space between characters, and `gap` the space between the reading and its characters. `layout = "rows"` shows the reading as one centred line above the original instead, which is easier to edit in Aegisub because the ruby layout writes one event per character. In that mode `margin_v = "auto"` places the row above the lyric line, or set a number yourself. Set `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
 ## Karaoke presentation
 

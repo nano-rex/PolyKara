@@ -131,6 +131,28 @@ def romanize_words(words: list[tuple[int, int, str]], language: str, settings: d
     return timed or None
 
 
+def ruby_groups(words: list[tuple[int, int, str]], language: str, settings: dict) -> list[dict] | None:
+    """Group the timed words of a line under the romanized piece that reads them.
+
+    Each group is {"tokens": [(start, end, text)], "roman": str | None,
+    "space_before": bool}; roman is None for text such as English words that
+    needs no reading above it.
+    """
+    text = "".join(word for _, _, word in words)
+    found = pieces(text, language, settings)
+    if not found:
+        return None
+    _, items = found
+    groups = [{"start": start, "roman": None if text[start:end] == roman else roman, "tokens": [], "space_before": index > 0 and text[items[index - 1][1]:start].strip() == "" and start > items[index - 1][1]} for index, (start, end, roman) in enumerate(items)]
+    offset = 0
+    for left, right, word in words:
+        first = offset + len(word) - len(word.lstrip())
+        offset += len(word)
+        owner = max((group for group in groups if group["start"] <= first), key=lambda group: group["start"], default=groups[0])
+        owner["tokens"].append((left, right, word.strip()))
+    return [group for group in groups if group["tokens"]] or None
+
+
 def _mandarin(text: str, settings: dict) -> list[tuple[str, str]]:
     from pypinyin import Style, pinyin
 

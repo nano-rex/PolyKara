@@ -7,3 +7,5 @@ anyascii
 indic-transliteration
 # Lets Traditional and Simplified Chinese lyric files agree in the accuracy check.
 zhconv
+# Measures font widths so readings sit exactly above their characters.
+pillow

@@ -532,8 +532,10 @@ def qa() -> None:
         except SongError as exc:
             lyric_state = f"ERROR ({exc})"
         if selected.exists():
-            lines = [line for line in selected.read_text(encoding="utf-8").splitlines() if line.startswith("Dialogue:") and ",Lyric," in line]
-            timed = sum(1 for line in lines if KARAOKE_TAG in line)
+            # A line laid out with romanization above each character is several events with one time range.
+            events = [line for line in selected.read_text(encoding="utf-8").splitlines() if line.startswith("Dialogue:") and ",Lyric," in line]
+            lines = sorted({tuple(line.split(",")[1:3]) for line in events})
+            timed = len({tuple(line.split(",")[1:3]) for line in events if KARAOKE_TAG in line})
             ass_state = f"{'edited' if selected == edited_path(sid) else 'automatic'} ({timed}/{len(lines)} lines with word timing)"
         else:
             ass_state = "MISSING"

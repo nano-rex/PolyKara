@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
-from .romanize import romanize, romanize_words
+from .layout import text_width
+from .romanize import romanize, romanize_words, ruby_groups
 from .subtitle import split_speaker
 
 
@@ -55,6 +56,52 @@ def intro_padding_ms(entries) -> int:
         return 0
     first_lyric = min(start for start, _, _, _ in entries)
     return max(0, card_end_ms(config) - first_lyric)
+
+
+def ruby_events(groups: list[dict], shown: int, end: int, colour: str, tag: str, karaoke: bool, video: dict, lyric: dict, roman: dict) -> list[str] | None:
+    """Place each romanized piece directly above the characters it reads.
+
+    Every piece and its characters become a pair of events centred on the same
+    x position. Returns None when the line cannot be laid out this way, so the
+    caller falls back to two plain rows.
+    """
+    width, height = float(video["play_res_x"]), float(video["play_res_y"])
+    lyric_size, roman_size = float(lyric["size"]), float(roman["size"])
+    lyric_bold, roman_bold = bool(lyric.get("bold", True)), bool(roman.get("bold", False))
+    spacing = lyric_size * float(roman.get("ruby_spacing", 0.15))
+    space = text_width(" ", lyric["font"], lyric_size, lyric_bold)
+    columns = []
+    for group in groups:
+        base = "".join(word for _, _, word in group["tokens"])
+        column = max(text_width(base, lyric["font"], lyric_size, lyric_bold), text_width(group["roman"] or "", roman["font"], roman_size, roman_bold)) + spacing
+        columns.append((space if group["space_before"] else 0.0, column))
+    total = sum(before + column for before, column in columns)
+    left_margin, right_margin = float(lyric["margin_l"]), float(lyric["margin_r"])
+    available = width - left_margin - right_margin
+    scale = min(1.0, available / total) if total else 1.0
+    position = alignment(lyric)
+    horizontal, vertical = (position - 1) % 3, (position - 1) // 3
+    # A line too long to fit at half size, or vertically centred lyrics, keep the two-row layout.
+    if scale < 0.5 or vertical == 1:
+        return None
+    x = left_margin if horizontal == 0 else width - right_margin - total * scale if horizontal == 2 else left_margin + (available - total * scale) / 2
+    gap = float(roman.get("gap", 6))
+    if vertical == 0:
+        anchor, base_y = 2, height - float(lyric["margin_v"])
+        roman_y = base_y - lyric_size * scale - gap
+    else:
+        anchor, roman_y = 8, float(lyric["margin_v"])
+        base_y = roman_y + roman_size * scale + gap
+    size_tags = f"\\fscx{scale * 100:.0f}\\fscy{scale * 100:.0f}" if scale < 1 else ""
+    events = []
+    for group, (before, column) in zip(groups, columns):
+        centre = x + (before + column / 2) * scale
+        x += (before + column) * scale
+        events.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,0,,{{\\an{anchor}\\pos({centre:.0f},{base_y:.0f}){size_tags}}}{colour}{karaoke_text(group['tokens'], shown, tag)}")
+        if group["roman"]:
+            reading = karaoke_text([(group["tokens"][0][0], group["tokens"][-1][1], group["roman"])], shown, tag) if karaoke else esc(group["roman"])
+            events.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{{\\an{anchor}\\pos({centre:.0f},{roman_y:.0f}){size_tags}}}{colour}{reading}")
+    return events
 
 
 def ass(row: dict[str, str], entries) -> str:
@@ -158,6 +205,15 @@ def ass(row: dict[str, str], entries) -> str:
             colour = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}"
             visible = colour + visible
         language = row.get("language", "")
+        if words and str(romanization_style.get("layout", "ruby")).lower() == "ruby":
+            groups = ruby_groups(words, language, romanization_style)
+            shifted = [{**group, "tokens": [(left + intro_padding, right + intro_padding, word) for left, right, word in group["tokens"]]} for group in groups or []]
+            events = ruby_events(shifted, shown, end, colour, karaoke_tag, romanize_karaoke, video, lyric_style, romanization_style) if groups else None
+            if events:
+                out.extend(events)
+                previous_end = max(previous_end, end)
+                shown_until = max(shown_until, end)
+                continue
         timed_roman = romanize_words(words, language, romanization_style) if words else None
         if timed_roman and romanize_karaoke:
             # Each romanized piece is timed from the characters it reads, so both rows fill together.

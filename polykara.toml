@@ -91,7 +91,13 @@ tag = "kf"
 # a list such as ["zh", "ja"] limits it to those song languages.
 enabled = true
 languages = "auto"
-# Highlight the romanized row word by word together with the original row.
+# "ruby" puts each reading directly above the characters it belongs to (pinyin above
+# each hanzi, romaji above each Japanese word, ...). "rows" shows the romanized line as
+# one centred row above the original line, which is easier to edit in Aegisub.
+layout = "ruby"
+# Extra space between characters in the ruby layout, as a fraction of the lyric size.
+ruby_spacing = 0.15
+# Highlight the romanized text together with the original characters.
 karaoke = true
 font = "Arial"
 size = 30

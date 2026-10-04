@@ -63,20 +63,59 @@ class OtherScriptsTest(unittest.TestCase):
         self.assertEqual(romanize("Привет мир", "ru", SETTINGS), "Privet mir")
 
 
-class TwoRowLayoutTest(unittest.TestCase):
-    def test_romanized_row_sits_above_the_lyric_and_highlights_with_it(self):
-        text = ass({**ROW, "language": "ko"}, [(20000, 24000, "사랑해", [(20000, 20500, "사"), (20500, 21000, "랑"), (21000, 21500, "해")])])
-        styles = {line.split(",")[0][7:]: line.split(",") for line in text.splitlines() if line.startswith("Style:")}
-        lyric_margin, roman_margin = int(styles["Lyric"][21]), int(styles["Romanization"][21])
-        self.assertGreater(roman_margin, lyric_margin + int(styles["Lyric"][2]) - 1)
-        self.assertEqual(styles["Romanization"][18], styles["Lyric"][18])
-        roman = [line for line in text.splitlines() if ",Romanization," in line and line.startswith("Dialogue")]
+def dialogue(text, style):
+    return [line for line in text.splitlines() if line.startswith("Dialogue") and f",{style}," in line]
+
+
+def position(line):
+    return line.split("\\pos(")[1].split(")")[0].split(",")
+
+
+class RubyLayoutTest(unittest.TestCase):
+    ENTRY = [(20000, 24000, "사랑해", [(20000, 20500, "사"), (20500, 21000, "랑"), (21000, 21500, "해")])]
+
+    def test_each_reading_is_centred_above_its_character(self):
+        text = ass({**ROW, "language": "ko"}, self.ENTRY)
+        base, roman = dialogue(text, "Lyric"), dialogue(text, "Romanization")
+        self.assertEqual(len(base), 3)
+        self.assertEqual(len(roman), 3)
+        for character, reading in zip(base, roman):
+            self.assertEqual(position(character)[0], position(reading)[0])
+            self.assertLess(int(position(reading)[1]), int(position(character)[1]))
+        xs = [int(position(line)[0]) for line in base]
+        self.assertEqual(xs, sorted(xs))
+        # Reading and character wait the same time and then fill over the same 0.5 s.
+        self.assertTrue(roman[1].endswith("{\\kf50}rang"))
+        self.assertTrue(base[1].endswith("{\\kf50}랑"))
+        self.assertEqual(roman[1].split("}", 1)[1].rsplit("{", 1)[0], base[1].split("}", 1)[1].rsplit("{", 1)[0])
+
+    def test_words_that_need_no_reading_get_none(self):
+        text = ass({**ROW, "language": "ko"}, [(20000, 24000, "사랑 baby", [(20000, 20500, "사"), (20500, 21000, "랑 "), (21000, 21500, "baby")])])
+        self.assertEqual(len(dialogue(text, "Lyric")), 3)
+        self.assertEqual([line.rsplit("}", 1)[1] for line in dialogue(text, "Romanization")], ["sa", "rang"])
+
+    def test_rows_layout_keeps_one_romanized_line(self):
+        import polykara.ass as module
+        original = module.load_config
+
+        def rows_config():
+            config = original()
+            return {**config, "romanization": {**config["romanization"], "layout": "rows"}}
+
+        module.load_config = rows_config
+        try:
+            text = ass({**ROW, "language": "ko"}, self.ENTRY)
+        finally:
+            module.load_config = original
+        roman = dialogue(text, "Romanization")
         self.assertEqual(len(roman), 1)
         self.assertTrue(roman[0].endswith("{\\kf50}sa{\\kf50}rang{\\kf50}hae"))
+        self.assertEqual(len(dialogue(text, "Lyric")), 1)
 
     def test_latin_lyrics_have_a_single_row(self):
         text = ass({**ROW, "language": "en"}, [(20000, 24000, "Hello", [(20000, 21000, "Hello")])])
-        self.assertFalse([line for line in text.splitlines() if line.startswith("Dialogue") and ",Romanization," in line])
+        self.assertFalse(dialogue(text, "Romanization"))
+        self.assertEqual(len(dialogue(text, "Lyric")), 1)
 
 
 if __name__ == "__main__":
