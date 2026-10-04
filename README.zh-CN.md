@@ -91,6 +91,8 @@ python3 pipeline.py render --reprocess
 
 Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` 的 `logo_file` 中为单首歌曲设置；编码参数在 `[render]` 中设置。
 
+非拉丁文字的歌词会显示为两行：上一行是罗马拼音，下一行是原文，两行同步高亮。中文普通话使用拼音（`pypinyin`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（`ToJyutping`），日文使用平文式罗马字（`pykakasi`），韩文使用内置的韩语罗马字标记法，印度文字使用 `indic-transliteration`，西里尔、希腊、泰文等其他文字使用 `anyascii`。安装方法：`pip install -r requirements-romanization.txt`。缺少某个引擎时，`lyrics` 步骤会提示需要安装的包，该行只显示原文。`pykakasi` 对人名和部分汉字的读音可能有误，可在编辑后的 ASS 中修正。拼音行的位置会根据 `[lyric]` 的字号和边距自动放在歌词上方（`romanization.margin_v = "auto"`），也可设为具体数值；请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
+
 长于 30 秒的无人声间隔会在最后三秒显示 `.`, `..`, `...`，每秒一个状态，位置在下一句歌词上方并左对齐。未标记歌词默认为蓝色；最多支持 16 位演唱者：
 
 ```text

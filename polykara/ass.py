@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
-from .romanize import romanize
+from .romanize import romanize, romanize_words
 from .subtitle import split_speaker
 
 
@@ -65,7 +65,22 @@ def ass(row: dict[str, str], entries) -> str:
     lyric_style["color"] = karaoke_style.get("active_color", lyric_style.get("color", "&H00FF0000"))
     lyric_style["secondary_color"] = karaoke_style.get("inactive_color", lyric_style.get("secondary_color", "&H00FFFFFF"))
     prompt_style, watermark_style = config["prompt"], config["watermark"]
-    romanization_style = config.get("romanization", {})
+    romanization_style = dict(config.get("romanization", {}))
+    romanize_karaoke = bool(romanization_style.get("karaoke", True))
+    if romanize_karaoke:
+        # The romanized row fills with the same colours as the original row.
+        romanization_style["color"], romanization_style["secondary_color"] = lyric_style["color"], lyric_style["secondary_color"]
+    # MarginV for lyric lines that have a romanized row; 0 keeps the style's margin.
+    lyric_margin = 0
+    if str(romanization_style.get("margin_v", "auto")).lower() == "auto":
+        # Two rows: the romanized reading on top, the original characters directly below it.
+        lyric_alignment, gap = alignment(lyric_style), int(romanization_style.get("gap", 6))
+        romanization_style.update(alignment=lyric_alignment, margin_l=lyric_style["margin_l"], margin_r=lyric_style["margin_r"])
+        if lyric_alignment >= 7:
+            romanization_style["margin_v"] = lyric_style["margin_v"]
+            lyric_margin = int(lyric_style["margin_v"]) + int(romanization_style["size"]) + gap
+        else:
+            romanization_style["margin_v"] = int(lyric_style["margin_v"]) + int(lyric_style["size"]) + gap
     def text_template(values: dict, fallback: str) -> str:
         try:
             return str(values.get("text", fallback)).format(**row)
@@ -137,13 +152,22 @@ def ass(row: dict[str, str], entries) -> str:
             visible = karaoke_text([(left + intro_padding, right + intro_padding, word) for left, right, word in words], shown, karaoke_tag)
         else:
             visible = esc(lyric_text)
+        colour = ""
         if speaker:
             semantic = {"duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF", "backing": "&H0000FF00"}
-            visible = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}{visible}"
-        romanized = romanize(lyric_text, row.get("language", ""), romanization_style)
+            colour = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}"
+            visible = colour + visible
+        language = row.get("language", "")
+        timed_roman = romanize_words(words, language, romanization_style) if words else None
+        if timed_roman and romanize_karaoke:
+            # Each romanized piece is timed from the characters it reads, so both rows fill together.
+            romanized = colour + karaoke_text([(left + intro_padding, right + intro_padding, word) for left, right, word in timed_roman], shown, karaoke_tag)
+        else:
+            plain = "".join(word for _, _, word in timed_roman).strip() if timed_roman else romanize(lyric_text, language, romanization_style)
+            romanized = esc(plain) if plain else ""
         if romanized:
-            out.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
-        out.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,0,,{visible}")
+            out.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{romanized}")
+        out.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,{lyric_margin if romanized else 0},,{visible}")
         previous_end = max(previous_end, end)
         shown_until = max(shown_until, end)
     return "\n".join(out) + "\n"

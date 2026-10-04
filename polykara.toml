@@ -85,9 +85,14 @@ inactive_color = "&H00FFFFFF"
 tag = "kf"
 
 [romanization]
-# Optional engines are installed with: pip install -r requirements-romanization.txt
+# Lyrics in a non-Latin script get two rows: the romanized reading on top and the
+# original characters below it. Engines: pip install -r requirements-romanization.txt
+# (Korean needs none). "auto" romanizes every line written in a non-Latin script;
+# a list such as ["zh", "ja"] limits it to those song languages.
 enabled = true
-languages = ["zh", "yue", "ja", "ko", "hi", "ta", "bn", "gu", "kn", "ml", "mr", "ne", "pa", "sa", "te", "or"]
+languages = "auto"
+# Highlight the romanized row word by word together with the original row.
+karaoke = true
 font = "Arial"
 size = 30
 color = "&H00FFFFFF"
@@ -97,7 +102,10 @@ horizontal = "center"
 vertical = "bottom"
 margin_l = 80
 margin_r = 80
-margin_v = 225
+# "auto" places the row just above the lyric line (gap pixels apart) using the
+# [lyric] font size and margins. A number sets the position yourself.
+margin_v = "auto"
+gap = 6
 bold = false
 italic = false
 outline = 2

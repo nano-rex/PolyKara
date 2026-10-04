@@ -15,6 +15,7 @@ from typing import Callable
 
 from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
+from polykara.romanize import MISSING as MISSING_ROMANIZERS
 from polykara.charts import add_selected
 from polykara.config import ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, load_config, run, require_current_ytdlp
 from polykara.manifest import SongError, check, find_source, resolve, rows, select, source
@@ -365,6 +366,9 @@ def lyrics_song(row: dict[str, str], dry_run: bool) -> None:
     if not entries:
         raise SongError(f"no timed lines found in {path}")
     text, target = ass(row, entries), auto_path(sid)
+    for module, language in MISSING_ROMANIZERS.items():
+        print(f"WARN {sid}: no romanized row for {language} lyrics; install {module} (pip install -r requirements-romanization.txt)")
+    MISSING_ROMANIZERS.clear()
     # Leave an unchanged file alone so its modification time keeps meaning "lyrics changed".
     if not dry_run and not (target.exists() and target.read_text(encoding="utf-8") == text):
         ASS.mkdir(parents=True, exist_ok=True)

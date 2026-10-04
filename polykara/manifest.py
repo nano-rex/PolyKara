@@ -81,9 +81,10 @@ def check(need_ytdlp: bool = True) -> None:
         print(f"{tool}: {shutil.which(tool) or 'MISSING'}")
     aligner = "whisperx" if shutil.which("whisperx") else "faster-whisper" if importlib.util.find_spec("faster_whisper") else None
     print(f"aligner: {aligner or 'MISSING (pip install -r requirements-align.txt)'}")
-    engines = {"pypinyin": "zh", "tojyutping": "yue", "pykakasi": "ja", "hangul_romanize": "ko", "indic_transliteration": "indic"}
-    available = [label for module, label in engines.items() if importlib.util.find_spec(module)]
-    print(f"romanization engines: {', '.join(available) or 'none (optional)'}")
+    engines = {"pypinyin": "zh", "ToJyutping": "yue", "pykakasi": "ja", "indic_transliteration": "indic", "anyascii": "other scripts"}
+    available = ["ko"] + [label for module, label in engines.items() if importlib.util.find_spec(module)]
+    missing = [label for module, label in engines.items() if not importlib.util.find_spec(module)]
+    print(f"romanization engines: {', '.join(available)}" + (f"; missing {', '.join(missing)} (pip install -r requirements-romanization.txt)" if missing else ""))
     base = WORK if WORK.exists() else ROOT
     print(f"free disk space: {shutil.disk_usage(base).free / 1024 ** 3:.1f} GiB in {base}")
     required = tools if need_ytdlp else tools[1:]

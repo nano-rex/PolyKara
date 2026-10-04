@@ -1,8 +1,9 @@
 # Optional romanization engines for bilingual sing-along subtitles.
 pypinyin
 pykakasi
-tojyutping
-hangul-romanize
+ToJyutping
+# Cyrillic, Greek, Thai, Arabic, Hebrew, and other scripts.
+anyascii
 indic-transliteration
 # Lets Traditional and Simplified Chinese lyric files agree in the accuracy check.
 zhconv

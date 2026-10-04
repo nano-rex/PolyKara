@@ -135,17 +135,28 @@ Recognised words are matched to the lyric text, not just counted, so an extra or
 
 The highlight starts when each word is actually sung: the wait before the first word and pauses between words are written into the ASS as empty `\k` syllables. `[timing]` in `polykara.toml` also controls how early a line appears (`lead_in_ms`) and when a line followed by a long instrumental leaves the screen (`max_tail_ms`, `tail_hold_ms`).
 
-### Romanized sing-along text
+### Two-row lyrics for non-Latin scripts
 
-For non-Latin lyrics, PolyKara can add a romanized line above the original lyric. Install the optional engines with:
+Lyrics written in a non-Latin script are shown on two rows: the romanized reading on top and the original characters directly below it. Both rows are highlighted together, each romanized piece filling while the characters it reads are sung. Lines written only in Latin letters keep a single row.
+
+| Script | Romanization | Engine |
+| --- | --- | --- |
+| Chinese (Mandarin) | Pinyin, `ni3 hao3` or `nǐ hǎo` (`romanization.tone`) | `pypinyin` |
+| Chinese (Cantonese, `language` = `yue` or `zh-hk`) | Jyutping | `ToJyutping` |
+| Japanese | Hepburn romaji | `pykakasi` |
+| Korean | Revised Romanization | built in |
+| Indic scripts (Hindi, Tamil, ...) | ITRANS | `indic-transliteration` |
+| Cyrillic, Greek, Thai, Arabic, Hebrew, others | ASCII transliteration | `anyascii` |
+
+The engine is chosen from the script of each line, and the song's `language` decides how Chinese characters are read. Install the engines with:
 
 ```bash
 pip install -r requirements-romanization.txt
 ```
 
-The default configuration supports Mandarin pinyin, Cantonese Jyutping, Japanese Hepburn romaji, Korean romanization, and Indic scripts including Tamil. Set `romanization.enabled = false`, remove a language from `romanization.languages`, or change `romanization.tone` to `"marks"` for tone marks such as `nǐ hǎo` instead of `ni3 hao3`.
+If an engine is missing, the `lyrics` step prints which package to install and that line keeps a single row. Japanese readings from `pykakasi` are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); correct them in the edited ASS.
 
-Romanization is generated from the lyric text and displayed above the timed original line. The original line remains the authoritative karaoke timing; if an optional engine is not installed, PolyKara keeps the original lyric rather than failing the render.
+The romanized row is placed automatically just above the lyric row, from the `[lyric]` size and margins (`romanization.margin_v = "auto"`, `gap` in pixels). Set `margin_v` to a number to place it yourself, `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
 ## Karaoke presentation
 
