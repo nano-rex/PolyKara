@@ -91,7 +91,7 @@ python3 pipeline.py render --reprocess
 
 Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` 的 `logo_file` 中为单首歌曲设置；编码参数在 `[render]` 中设置。
 
-非拉丁文字的歌词会把读音直接标在对应的字上方：每个汉字上方是拼音，日文每个词上方是罗马字，韩文每个音节上方是罗马字，其他文字同理；读音和原字同步高亮，字距会自动调整，避免较长的拼音与相邻的字重叠。布局根据 libass 实际使用的字体宽度计算（安装 Pillow 和 fontconfig 时精确测量，否则使用安全的估算值，字距会稍宽）；过长的行会自动缩小。`romanization.ruby_spacing` 调整字距；`layout = "rows"` 可改为在原文上方显示一整行读音，在 Aegisub 中更便于编辑。中文普通话使用拼音（`pypinyin`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（`ToJyutping`），日文使用平文式罗马字（`pykakasi`），韩文使用内置的韩语罗马字标记法，印度文字使用 `indic-transliteration`，西里尔、希腊、泰文等其他文字使用 `anyascii`。安装方法：`pip install -r requirements-romanization.txt`。缺少某个引擎时，`lyrics` 步骤会提示需要安装的包，该行只显示原文。`pykakasi` 对人名和部分汉字的读音可能有误，可在编辑后的 ASS 中修正。拼音行的位置会根据 `[lyric]` 的字号和边距自动放在歌词上方（`romanization.margin_v = "auto"`），也可设为具体数值；请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
+非拉丁文字的歌词会把读音直接标在对应的字上方：每个汉字上方是拼音，日文每个词上方是罗马字，韩文每个音节上方是罗马字，其他文字同理；读音和原字同步高亮，字距会自动调整，避免较长的拼音与相邻的字重叠。布局根据 libass 实际使用的字体宽度计算（安装 Pillow 和 fontconfig 时精确测量，否则使用安全的估算值，字距会稍宽）；过长的行会自动缩小。`romanization.ruby_spacing` 调整字距；`layout = "rows"` 可改为在原文上方显示一整行读音，在 Aegisub 中更便于编辑。中文普通话使用带声调符号的拼音，如 `nǐ hǎo`（`pypinyin`；设置 `tone = "numbers"` 可改为 `ni3 hao3`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（`ToJyutping`），日文使用平文式罗马字（`pykakasi`），韩文使用内置的韩语罗马字标记法，印度文字使用 `indic-transliteration`，西里尔、希腊、泰文等其他文字使用 `anyascii`。安装方法：`pip install -r requirements-romanization.txt`。缺少某个引擎时，`lyrics` 步骤会提示需要安装的包，该行只显示原文。`pykakasi` 对人名和部分汉字的读音可能有误，可在编辑后的 ASS 中修正。拼音行的位置会根据 `[lyric]` 的字号和边距自动放在歌词上方（`romanization.margin_v = "auto"`），也可设为具体数值；请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
 
 长于 30 秒的无人声间隔会在最后三秒显示 `.`, `..`, `...`，每秒一个状态，位置在下一句歌词上方并左对齐。未标记歌词默认为蓝色；最多支持 16 位演唱者：
 

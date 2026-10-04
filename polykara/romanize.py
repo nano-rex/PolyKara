@@ -156,7 +156,7 @@ def ruby_groups(words: list[tuple[int, int, str]], language: str, settings: dict
 def _mandarin(text: str, settings: dict) -> list[tuple[str, str]]:
     from pypinyin import Style, pinyin
 
-    tone = str(settings.get("tone", "numbers")).casefold()
+    tone = str(settings.get("tone", "marks")).casefold()
     style = Style.TONE3 if tone in {"numbers", "number", "tone3"} else Style.TONE
     values = [item[0] for item in pinyin(text, style=style, neutral_tone_with_five=True, errors="default")]
     # pypinyin returns one item per Chinese character and one per run of anything else.

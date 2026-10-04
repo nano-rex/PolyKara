@@ -116,8 +116,8 @@ bold = false
 italic = false
 outline = 2
 shadow = 1
-# Mandarin: numbers (ni3 hao3) or marks (nǐ hǎo).
-tone = "numbers"
+# Mandarin pinyin: marks (nǐ hǎo) or numbers (ni3 hao3).
+tone = "marks"
 
 [lyrics]
 # Provider order. Use an empty list to disable automatic external lookup.

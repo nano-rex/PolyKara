@@ -44,6 +44,7 @@ class KoreanTest(unittest.TestCase):
 class MandarinTest(unittest.TestCase):
     def test_pinyin_per_character_with_latin_words_kept(self):
         self.assertEqual(romanize("我们, Hello 朋友！", "zh", SETTINGS), "wo3 men5, Hello peng2 you3!")
+        self.assertEqual(romanize("我们长大了，女朋友", "zh", {**SETTINGS, "tone": "marks"}), "wǒ men zhǎng dà le, nǚ péng yǒu")
         words = timed("你好 世界")
         self.assertEqual([word for _, _, word in romanize_words(words, "zh", SETTINGS)], ["ni3 ", "hao3 ", "shi4 ", "jie4"])
 

@@ -141,7 +141,7 @@ Lyrics written in a non-Latin script get their reading directly above the charac
 
 | Script | Romanization | Engine |
 | --- | --- | --- |
-| Chinese (Mandarin) | Pinyin, `ni3 hao3` or `nǐ hǎo` (`romanization.tone`) | `pypinyin` |
+| Chinese (Mandarin) | Pinyin with tone marks, `nǐ hǎo` (or `tone = "numbers"` for `ni3 hao3`) | `pypinyin` |
 | Chinese (Cantonese, `language` = `yue` or `zh-hk`) | Jyutping | `ToJyutping` |
 | Japanese | Hepburn romaji | `pykakasi` |
 | Korean | Revised Romanization | built in |
