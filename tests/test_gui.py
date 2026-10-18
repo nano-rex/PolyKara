@@ -16,7 +16,8 @@ class SongListTest(unittest.TestCase):
     def test_new_ids_come_from_the_title_and_stay_unique(self):
         self.assertEqual(gui.new_id("I Know You're Hurting", set()), "i-know-you-re-hurting")
         self.assertEqual(gui.new_id("Wanna", {"wanna"}), "wanna-2")
-        self.assertEqual(gui.new_id("我们的纪念", set()), "song")
+        # Romanized when pypinyin is installed, otherwise a placeholder.
+        self.assertIn(gui.new_id("我们的纪念", set()), {"wo-men-de-ji-nian", "song"})
 
     def test_songs_round_trip_and_keep_unknown_columns(self):
         with tempfile.TemporaryDirectory() as folder:
