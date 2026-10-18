@@ -108,16 +108,26 @@ def new_id(title: str, taken: set[str]) -> str:
     return candidate
 
 
+def relative_to_home(path: Path) -> str:
+    """The path relative to the PolyKara folder when it is inside it, otherwise absolute.
+
+    Both sides are resolved: Windows may name the same folder in its short
+    (RUNNER~1) and long forms.
+    """
+    path = Path(path).resolve()
+    try:
+        return str(path.relative_to(HOME.resolve()))
+    except ValueError:
+        return str(path)
+
+
 def describe(path: Path, taken: set[str]) -> dict[str, str]:
     """A songs.csv row for a media file."""
     info = probe(path)
     artist, title = guess_from_name(path.stem)
     title = info["tags"].get("title", "").strip() or title
     artist = info["tags"].get("artist", "").strip() or info["tags"].get("album_artist", "").strip() or artist
-    try:
-        url = str(path.relative_to(HOME))
-    except ValueError:
-        url = str(path)
+    url = relative_to_home(path)
     row = {name: "" for name in COLUMNS}
     row.update(id=new_id(f"{artist} {title}" if artist else title, taken), url=url, title=title, artist=artist, language=guess_language(title + artist), template="solo", prompt_ms="1000", align_model="auto")
     return row

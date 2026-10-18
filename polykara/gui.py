@@ -22,7 +22,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .app import prepare
 from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, ROOT
-from .localmedia import add_files, describe, new_id
+from .localmedia import add_files, describe, new_id, relative_to_home
 from .manifest import REQUIRED_COLUMNS, find_source
 
 COLUMNS = ["id", "url", "title", "artist", "lyricist", "composer", "producer", "template", "language", "subtitle_langs", "lyrics_file", "word_timing_file", "logo_file", "prompt_ms", "align_model", "lyric_sources", "lyric_pages", "voice"]
@@ -147,11 +147,7 @@ class SongDialog(tk.Toplevel):
             for name in ("title", "artist", "language"):
                 if not self.values[name].get().strip():
                     self.values[name].set(guessed[name])
-        try:
-            chosen = str(path.relative_to(HOME))
-        except ValueError:
-            pass
-        variable.set(chosen)
+        variable.set(relative_to_home(path))
 
     def save(self) -> None:
         song = {**DEFAULTS, **self.original, **{field: variable.get().strip() for field, variable in self.values.items()}}
