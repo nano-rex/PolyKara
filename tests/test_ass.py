@@ -38,7 +38,7 @@ class AssDocumentTest(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertTrue(all("{\\k" in line for line in lines))
         self.assertIn("Hello ", lines[0])
-        self.assertIn("{\\c&H", lines[1])
+        self.assertRegex(lines[1], r"\{\\1?c&H")
         self.assertIn("; PolyKaraIntroPaddingMs: 0", text)
 
     def test_line_is_shown_early_but_highlight_starts_on_time(self):

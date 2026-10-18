@@ -141,7 +141,7 @@ Lyrics written in a non-Latin script get their reading directly above the charac
 
 | Script | Romanization | Engine |
 | --- | --- | --- |
-| Chinese (Mandarin) | Pinyin with tone marks, `nǐ hǎo` (or `tone = "numbers"` for `ni3 hao3`) | `pypinyin` |
+| Chinese (Mandarin) | Pinyin without tone marks, `ni hao` (or `tone = "marks"` for `nǐ hǎo`, `"numbers"` for `ni3 hao3`) | `pypinyin` |
 | Chinese (Cantonese, `language` = `yue` or `zh-hk`) | Jyutping | `ToJyutping` |
 | Japanese | Hepburn romaji | `pykakasi` |
 | Korean | Revised Romanization | built in |
@@ -159,6 +159,23 @@ If an engine is missing, the `lyrics` step prints which package to install and t
 Each line is laid out from the font widths libass will use, measured with Pillow and fontconfig when they are installed (`pip install pillow`); without them a safe estimate is used and characters are spaced a little wider. A line too long for the screen is scaled down to fit. `romanization.ruby_spacing` sets the space between characters, and `gap` the space between the reading and its characters. `layout = "rows"` shows the reading as one centred line above the original instead, which is easier to edit in Aegisub because the ruby layout writes one event per character. In that mode `margin_v = "auto"` places the row above the lyric line, or set a number yourself. Set `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
 ## Karaoke presentation
+
+### KTV layout (default)
+
+The default look follows common KTV karaoke videos:
+
+- **Two staggered rows.** The upper row is aligned left and the lower row right. Both lines of a pair appear `lead_ms` (2 s) before the first is sung and leave together after the second, with a short fade. A gap of `page_break_ms` (6 s) or more starts a new pair in the upper row. `mode = "alternate"` gives each row its next line as soon as its line has been sung, and `mode = "single"` restores the earlier one-line centred layout.
+- **Sung and unsung text.** Unsung text is white with a dark outline. As each word is sung, a smooth left-to-right wipe turns it to the singer colour with a white outline. Readings above Chinese, Japanese, and Korean characters fill along with them.
+- **Opening card.** The title is centred near the top with a soft glow in the singer colour. Below it the credits are a left-aligned block: singer, composer, lyricist, and subtitles (`artist`, `composer`, `lyricist`, `producer` in `songs.csv`). The labels follow the song language (English, Chinese, Malay/Indonesian), and long lists of names continue under the first name.
+- **Countdown.** Four dots above the first line, and above the first line after a pause of `[timing] long_pause_ms` (10 s). One dot disappears every second until the line is sung. When the first line is sung too soon for its countdown, the video gets a frozen opening frame of the needed length (`[video] extend_intro`).
+- **Singer colours.** Set the `voice` column in `songs.csv` to `female` (red), `male` (blue), or `duet` (green). Duets can tag lines with `[singer: 女]`, `[singer: 男]`, and `[singer: 合]` (or `female`, `male`, `both`). Tagged lines take that colour and start with the name, e.g. `女：`. Other singer names get colours of their own. Change the colours in `[singers]`, or hide the name with `show_label = false`.
+- **Frame.** Output is 1920x1080. A video of another shape, such as a 4:3 TV clip, is filled out with a blurred copy of itself (`[render] fit = "blur"`, or `"pad"` for black bars, `"none"` to keep it as it is).
+
+The edited ASS stays plain `\kf` karaoke, so word timing can be fixed in Aegisub as before. The white outline on sung text is added when rendering, in a temporary `work/ass/<id>.render.ass`: each karaoke event gets a copy in the sung colours whose clip follows the karaoke timing. Placing the clip needs the fonts to be measured, so install Pillow (`pip install pillow`, included in `requirements-romanization.txt`). Without it, sung text keeps the dark outline and `render` prints a note.
+
+Fonts: lyrics use Calibri, which fontconfig replaces with the metric-compatible Carlito on Linux. Chinese, Japanese, and Korean characters fall back to the system CJK font, and lines in those scripts use `[lyric] cjk_size` (145) because CJK fonts draw smaller at the same size. Row heights and side margins are `top_margin_v`, `bottom_margin_v`, `margin_l`, and `margin_r` in `[layout]`. The card is set in `[card]`, the dots in `[countdown]`.
+
+### Other settings
 
 Edit `polykara.toml` to change the lyric font, size, colors, title card, credits, or watermark. For example:
 
@@ -213,13 +230,13 @@ opacity = 0.9
 
 Encoder settings live in `[render]` (`video_codec`, `preset`, `crf`, `pixel_format`, `audio_codec`, `audio_bitrate`, `extra_args`).
 
-When `extend_intro` is enabled, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
+When `extend_intro` is enabled in the `single` layout, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric (the KTV layouts only do this to make room for the countdown). Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
 
 Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_memory_gib = 2` reserves a fixed 2 GiB for the system, so an 8 GiB machine receives a 6 GiB model-selection budget. This is a selection policy, not a hard operating-system memory limit.
 
-For vocal pauses of at least 30 seconds, the final three seconds display `.`, `..`, and `...`, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
+In the `single` layout, vocal pauses of at least `long_pause_ms` show `.`, `..`, and `...` in their final three seconds, one state per second, above and left-aligned with the upcoming lyric. Normal gaps do not display dots.
 
-Unmarked lyrics are blue by default. Up to 16 singers can be labeled:
+Unmarked lyrics use the song's `voice` colour, or `[karaoke] active_color`. Up to 16 singers can be labeled:
 
 ```text
 [00:12.00][singer:A]First singer line

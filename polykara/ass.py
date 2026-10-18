@@ -106,6 +106,10 @@ def ruby_events(groups: list[dict], shown: int, end: int, colour: str, tag: str,
 
 def ass(row: dict[str, str], entries) -> str:
     config = load_config()
+    if str(config.get("layout", {}).get("mode", "pairs")).lower() != "single":
+        from .ktv import document
+
+        return document(row, entries, config, at, esc, karaoke_text, SPEAKER_PALETTE)
     video, title_style = config["video"], config["title"]
     credit_style, lyric_style = config["credit"], dict(config["lyric"])
     karaoke_style = config.get("karaoke", {})

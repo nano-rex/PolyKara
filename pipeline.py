@@ -15,6 +15,7 @@ from typing import Callable
 
 from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
+from polykara.ktv import decorate
 from polykara.romanize import MISSING as MISSING_ROMANIZERS
 from polykara.charts import add_selected
 from polykara.config import ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, load_config, run, require_current_ytdlp
@@ -429,11 +430,11 @@ def logo_for(row: dict[str, str]) -> Path | None:
     return path
 
 
-def logo_filters(media: Path, video: str) -> list[str]:
+def logo_filters(media: Path, video: str, frame_width: int | None = None) -> list[str]:
     """Scale and place the logo in PlayRes units so it matches the subtitle layout at any resolution."""
     config = load_config()
     settings = config["logo"]
-    scale = video_size(media)[0] / max(1, int(config["video"]["play_res_x"]))
+    scale = (frame_width or video_size(media)[0]) / max(1, int(config["video"]["play_res_x"]))
     width = max(2, round(float(settings.get("width", 220)) * scale))
     margin_x, margin_y = round(float(settings.get("margin_x", 40)) * scale), round(float(settings.get("margin_y", 40)) * scale)
     position = str(settings.get("position", "top-right")).lower()
@@ -441,6 +442,50 @@ def logo_filters(media: Path, video: str) -> list[str]:
     y = str(margin_y) if "top" in position else f"H-h-{margin_y}" if "bottom" in position else "(H-h)/2"
     opacity = min(1.0, max(0.0, float(settings.get("opacity", 1.0))))
     return [f"[1:v]scale={width}:-1,format=rgba,colorchannelmixer=aa={opacity:g}[logo]", f"{video}[logo]overlay={x}:{y}[branded]"]
+
+
+def fit_filters(media: Path, video: str) -> tuple[list[str], int | None]:
+    """Bring the video to the PlayRes frame size; returns the filters and the new width.
+
+    "blur" fills the bars of a video with another shape (4:3, vertical, ...) with a
+    blurred, enlarged copy of itself, "pad" uses black bars, "none" keeps the video
+    as it is.
+    """
+    config = load_config()
+    fit = str(config["render"].get("fit", "blur")).lower()
+    if fit == "none":
+        return [], None
+    width, height = int(config["video"]["play_res_x"]), int(config["video"]["play_res_y"])
+    source_width, source_height = video_size(media)
+    if (source_width, source_height) == (width, height):
+        return [], None
+    fitted = f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+    if abs(source_width * height - source_height * width) <= 0.01 * source_height * width:
+        return [f"{video}scale={width}:{height},setsar=1[fitted]"], width
+    if fit == "pad":
+        return [f"{video}{fitted},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[fitted]"], width
+    sigma = float(config["render"].get("blur_sigma", 30))
+    return [
+        f"{video}split[fit_bg][fit_fg]",
+        f"[fit_bg]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},gblur=sigma={sigma:g},eq=brightness=-0.06[fit_blurred]",
+        f"[fit_fg]{fitted}[fit_front]",
+        "[fit_blurred][fit_front]overlay=(W-w)/2:(H-h)/2,setsar=1[fitted]",
+    ], width
+
+
+def burn_subtitle(sid: str, subtitle: Path, ass_text: str, dry_run: bool) -> Path:
+    """The subtitle to burn in: KTV layouts get their sung-colour overlay added in a copy."""
+    # Aegisub may drop the layout comment when saving; the card style marks the layout too.
+    if "; PolyKaraLayout: ktv" not in ass_text and "\nStyle: CardTitle," not in ass_text:
+        return subtitle
+    decorated, done = decorate(ass_text, load_config())
+    if not done:
+        print(f"NOTE {sid}: sung text keeps the dark outline; install Pillow (pip install pillow) for the white sung outline")
+        return subtitle
+    target = subtitle.parent / f"{sid}.render.ass"
+    if not dry_run:
+        target.write_text(decorated, encoding="utf-8")
+    return target
 
 
 def encoder_args() -> list[str]:
@@ -487,11 +532,16 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
         filters.append(f"{video}tpad=start_mode=clone:start_duration={padding / 1000:g}[padded]")
         filters.append(f"[0:a:0]adelay={padding}:all=1[a]")
         video, audio = "[padded]", "[a]"
+    fitted, frame_width = fit_filters(media, video)
+    if fitted:
+        filters += fitted
+        video = "[fitted]"
     if logo is not None:
-        filters += logo_filters(media, video)
+        filters += logo_filters(media, video, frame_width)
         video = "[branded]"
+    burned = burn_subtitle(sid, subtitle, ass_text, dry_run)
     # ffmpeg runs inside the ASS directory: ids are filter-safe, absolute paths are not.
-    filters.append(f"{video}ass={subtitle.name}[v]")
+    filters.append(f"{video}ass={burned.name}[v]")
     partial = OUTPUT / f"{sid}.partial.mp4"
     cmd = ["ffmpeg", "-hide_banner", "-y", "-i", str(media)] + (["-i", str(logo)] if logo is not None else [])
     cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", audio] + encoder_args() + [str(partial)]
@@ -504,6 +554,8 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
             print(f"{sid}: rendered {output}")
     finally:
         partial.unlink(missing_ok=True)
+        if burned != subtitle:
+            burned.unlink(missing_ok=True)
 
 
 def render(dry_run: bool, force: bool) -> None:
@@ -534,8 +586,12 @@ def qa() -> None:
         if selected.exists():
             # A line laid out with romanization above each character is several events with one time range.
             events = [line for line in selected.read_text(encoding="utf-8").splitlines() if line.startswith("Dialogue:") and ",Lyric," in line]
-            lines = sorted({tuple(line.split(",")[1:3]) for line in events})
-            timed = len({tuple(line.split(",")[1:3]) for line in events if KARAOKE_TAG in line})
+            # KTV layouts number their lines in the Name field, because a pair shares one time range.
+            def line_key(line: str) -> tuple[str, ...]:
+                fields = line.split(",", 5)
+                return (fields[4],) if fields[4].strip() else tuple(fields[1:3])
+            lines = sorted({line_key(line) for line in events})
+            timed = len({line_key(line) for line in events if KARAOKE_TAG in line})
             ass_state = f"{'edited' if selected == edited_path(sid) else 'automatic'} ({timed}/{len(lines)} lines with word timing)"
         else:
             ass_state = "MISSING"
