@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    # Publishing a release on v* tags needs write access to the repository contents.
+    permissions:
+      contents: write
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
