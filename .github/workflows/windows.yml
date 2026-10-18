@@ -1,0 +1,70 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        run: |
+          python -m pip install pypinyin pillow
+          python -m unittest discover -s tests -t .
+
+      - name: Build program folder and installer
+        shell: pwsh
+        run: ./packaging/build-windows.ps1
+
+      - name: Self-test the built program
+        shell: pwsh
+        run: |
+          $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
+          & .\dist\PolyKara\polykara-cli.exe selftest
+          if ($LASTEXITCODE -ne 0) { throw "selftest failed" }
+          & .\dist\PolyKara\polykara-cli.exe check
+          if ($LASTEXITCODE -ne 0) { throw "check failed" }
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          Copy-Item "$env:POLYKARA_HOME\work\output\selftest.png" screenshots\selftest.png
+
+      - name: Screenshot the window
+        shell: pwsh
+        run: |
+          $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
+          $app = Start-Process .\dist\PolyKara\PolyKara.exe -PassThru
+          Start-Sleep -Seconds 15
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $image = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($image)
+          $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $image.Save("screenshots\window.png")
+          if ($app.HasExited) { throw "PolyKara.exe exited with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PolyKara-Setup
+          path: dist/PolyKara-Setup-*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PolyKara-Setup-*.exe

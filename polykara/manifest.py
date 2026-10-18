@@ -5,7 +5,7 @@ import importlib.util
 import re
 import shutil
 from pathlib import Path
-from .config import MANIFEST, MEDIA_SUFFIXES, RAW, ROOT, WORK, require_current_ytdlp
+from .config import HOME, MANIFEST, MEDIA_SUFFIXES, RAW, WORK, require_current_ytdlp
 
 REQUIRED_COLUMNS = {"id", "url", "title", "artist", "lyricist", "composer", "producer", "template", "language", "subtitle_langs", "lyrics_file", "word_timing_file", "logo_file", "prompt_ms"}
 class SongError(Exception):
@@ -53,9 +53,9 @@ def rows() -> list[dict[str, str]]:
 
 
 def resolve(value: str) -> Path:
-    """Resolve a manifest path relative to the project root."""
+    """Resolve a manifest path relative to the folder that holds songs.csv."""
     path = Path(value).expanduser()
-    return path if path.is_absolute() else ROOT / path
+    return path if path.is_absolute() else HOME / path
 
 
 def find_source(sid: str) -> Path | None:
@@ -85,7 +85,7 @@ def check(need_ytdlp: bool = True) -> None:
     available = ["ko"] + [label for module, label in engines.items() if importlib.util.find_spec(module)]
     missing = [label for module, label in engines.items() if not importlib.util.find_spec(module)]
     print(f"romanization engines: {', '.join(available)}" + (f"; missing {', '.join(missing)} (pip install -r requirements-romanization.txt)" if missing else ""))
-    base = WORK if WORK.exists() else ROOT
+    base = WORK if WORK.exists() else HOME
     print(f"free disk space: {shutil.disk_usage(base).free / 1024 ** 3:.1f} GiB in {base}")
     required = tools if need_ytdlp else tools[1:]
     if any(shutil.which(tool) is None for tool in required):

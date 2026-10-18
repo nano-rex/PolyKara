@@ -10,9 +10,12 @@ apart but never overlap.
 from __future__ import annotations
 
 import functools
+import os
+import re
 import shutil
 import subprocess
 import unicodedata
+from pathlib import Path
 
 # Advance widths of Arial / Helvetica in 1/1000 em for printable ASCII (32-126).
 ARIAL_REGULAR = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584]
@@ -34,8 +37,62 @@ def script_of(char: str) -> str:
     return "han"
 
 
+# Fonts Windows falls back to for each wide script when the chosen font lacks it.
+WINDOWS_FALLBACKS = {"4e00": ("Microsoft YaHei", "SimSun"), "3042": ("Yu Gothic", "Meiryo", "MS Gothic"), "ac00": ("Malgun Gothic", "Gulim")}
+
+
+@functools.lru_cache(maxsize=1)
+def windows_fonts() -> dict[str, str]:
+    """Installed fonts as {"arial": path, "arial bold": path, ...} from the Windows registry."""
+    import winreg
+
+    found: dict[str, str] = {}
+    folders = (Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts", Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Windows" / "Fonts")
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            key = winreg.OpenKey(hive, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts")
+        except OSError:
+            continue
+        with key:
+            index = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                index += 1
+                path = Path(str(value))
+                if not path.is_absolute():
+                    path = next((folder / path for folder in folders if (folder / path).exists()), folders[0] / path)
+                # "Microsoft YaHei & Microsoft YaHei UI (TrueType)" names two families in one file.
+                for family in re.sub(r"\s*\(.*\)\s*$", "", name).split("&"):
+                    found.setdefault(family.strip().casefold(), str(path))
+    return found
+
+
+def windows_font_file(pattern: str) -> str | None:
+    family, _, options = pattern.partition(":")
+    bold = "bold" in options.split(":")
+    charset = re.search(r"charset=([0-9a-f]+)", options)
+    fonts = windows_fonts()
+    families = [family]
+    if charset and family not in WINDOWS_FALLBACKS.get(charset.group(1), ()):
+        # libass draws characters the font lacks with a system fallback font.
+        families = list(WINDOWS_FALLBACKS.get(charset.group(1), ())) + families
+    for name in families:
+        for key in ((f"{name} bold", name) if bold else (name, f"{name} regular")):
+            if key.casefold() in fonts:
+                return fonts[key.casefold()]
+    return None
+
+
 @functools.lru_cache(maxsize=32)
 def font_file(pattern: str) -> str | None:
+    if os.name == "nt":
+        try:
+            return windows_font_file(pattern)
+        except Exception:
+            return None
     if shutil.which("fc-match") is None:
         return None
     try:

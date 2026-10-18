@@ -1,0 +1,10 @@
+# Everything the Windows build bundles (ffmpeg, ffprobe and yt-dlp are downloaded by build-windows.ps1).
+faster-whisper
+pypinyin
+pykakasi
+ToJyutping
+anyascii
+indic-transliteration
+zhconv
+pillow
+pyinstaller>=6.3

@@ -9,3 +9,7 @@ songs.csv.tmp
 .venv/
 .idea/
 .vscode/
+
+# Windows build output
+packaging/build/
+dist/

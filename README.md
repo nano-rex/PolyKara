@@ -8,6 +8,19 @@ Presentation and chart defaults are configured in [`polykara.toml`](polykara.tom
 
 PolyKara separates repeatable CLI processing from final GUI adjustments. It produces editable ASS subtitles, supports word-level karaoke highlighting, and renders final MP4 files with FFmpeg.
 
+## Windows app
+
+Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
+
+- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line, and the status column follows each song. **Edit subtitles** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** edits `polykara.toml`, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
+- Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
+- **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
+- The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
+
+To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Python 3.11 or newer). It downloads ffmpeg and yt-dlp, runs PyInstaller, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program, and attaches the installer to a release when a `v*` tag is pushed.
+
+On Linux and macOS, `python3 polykara-gui.py` opens the same window from a checkout (it needs Python with Tk and the tools listed below).
+
 ## Quick start
 
 Edit `songs.csv`, then run the complete pipeline:

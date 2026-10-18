@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from polykara.app import prepare
 from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
 from polykara.ktv import decorate
@@ -406,8 +407,15 @@ def edit(row: dict[str, str]) -> None:
         shutil.copy2(auto, edited)
         print(f"Created editable copy: {edited}")
     gui = shutil.which("aegisub") or shutil.which("Aegisub") or shutil.which("subtitleedit")
+    if gui is None and os.name == "nt":
+        programs = [Path(os.environ.get(name, "")) for name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")]
+        candidates = [folder / sub for folder in programs for sub in ("Aegisub/aegisub64.exe", "Aegisub/aegisub.exe", "Programs/Aegisub/aegisub64.exe", "Subtitle Edit/SubtitleEdit.exe")]
+        gui = next((str(path) for path in candidates if path.is_file()), None)
     if gui:
         subprocess.Popen([gui, str(edited)])
+    elif os.name == "nt":
+        # Whatever program .ass files are associated with, or the "Open with" dialog.
+        os.startfile(str(edited))  # type: ignore[attr-defined]
     else:
         print(f"Open this file in Aegisub or Subtitle Edit: {edited}")
 
@@ -651,7 +659,59 @@ def summary() -> int:
     return 1
 
 
+def selftest() -> int:
+    """Render one KTV frame with the tools PolyKara would use, to check an installation."""
+    import tempfile
+
+    problems = []
+    for tool in ("ffmpeg", "ffprobe", "yt-dlp"):
+        print(f"{tool}: {shutil.which(tool) or 'MISSING'}")
+        if shutil.which(tool) is None:
+            problems.append(f"{tool} is missing")
+    aligner = "faster-whisper" if importlib.util.find_spec("faster_whisper") else "whisperx" if shutil.which("whisperx") else None
+    print(f"aligner: {aligner or 'MISSING'}")
+    if aligner is None:
+        problems.append("no aligner")
+    row = {"id": "selftest", "title": "PolyKara 自检", "artist": "歌手 & Singer", "composer": "作曲", "lyricist": "作词", "producer": "PolyKara", "language": "zh", "voice": "duet"}
+
+    def timed(start: int, pieces: list[str]) -> tuple:
+        words = [(start + 300 * index, start + 300 * index + 280, piece) for index, piece in enumerate(pieces)]
+        return (start, words[-1][1], "".join(pieces), words)
+
+    entries = [timed(5000, list("唤不醒原来")), timed(7000, ["Hello ", "PolyKara ", "world"])]
+    entries[0] = (entries[0][0], entries[0][1], "[singer: 女] " + entries[0][2], entries[0][3])
+    text = ass(row, entries)
+    readings = [line.rsplit("}", 1)[1] for line in text.splitlines() if ",Romanization," in line]
+    print(f"romanization: {' '.join(readings) or 'MISSING'}")
+    if not readings:
+        problems.append("no pinyin (pypinyin missing)")
+    decorated, done = decorate(text, load_config())
+    print(f"sung outline overlay: {'ok' if done else 'MISSING (fonts could not be measured)'}")
+    if not done:
+        problems.append("fonts could not be measured")
+    target = OUTPUT / "selftest.png"
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as folder:
+        Path(folder, "selftest.ass").write_text(decorated, encoding="utf-8")
+        try:
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x2a3d55:s=1920x1080:r=5:d=7", "-vf", "ass=selftest.ass", "-ss", "5.9", "-frames:v", "1", str(target)], cwd=folder, check=True, timeout=300)
+        except (OSError, subprocess.SubprocessError) as exc:
+            problems.append(f"ffmpeg could not render subtitles ({exc})")
+    if target.exists() and target.stat().st_size:
+        print(f"rendered test frame: {target}")
+    elif not any(problem.startswith("ffmpeg") for problem in problems):
+        problems.append("ffmpeg produced no frame")
+    if problems:
+        print("SELFTEST FAILED: " + "; ".join(problems))
+        return 1
+    print("SELFTEST OK")
+    return 0
+
+
 def main() -> int:
+    prepare()
+    if sys.argv[1:2] == ["selftest"]:
+        return selftest()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
     parser.add_argument("songs", nargs="*", help="optional song ids from songs.csv; default is every song")

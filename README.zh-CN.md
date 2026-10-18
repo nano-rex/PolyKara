@@ -4,6 +4,17 @@
 
 [English README](README.md)
 
+## Windows 安装程序
+
+从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、yt-dlp、faster-whisper（CPU 对轴）、各语言罗马音引擎和 Pillow。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
+
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。**Edit subtitles** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 编辑 `polykara.toml`，YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
+- **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令与 `pipeline.py` 相同；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
+- 第一次对轴时会下载一次 Whisper 模型（`small` 约 0.5 GB）。
+
+自行构建：在 Windows 上运行 `packaging\build-windows.ps1`（需要 Python 3.11+）。
+
 ## 快速开始
 
 1. 编辑 `songs.csv`，填写歌曲 URL、资料、语言和歌词来源。

@@ -8,10 +8,30 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-MANIFEST = ROOT / "songs.csv"
-CONFIG_FILE = ROOT / "polykara.toml"
-WORK = ROOT / "work"
+import sys
+
+# Program files: the repository, or the unpacked application when PolyKara is installed.
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+
+
+def _home() -> Path:
+    """Where songs.csv, polykara.toml and work/ live.
+
+    POLYKARA_HOME chooses the folder. The installed application uses
+    Documents/PolyKara, because its program folder is not meant for user files;
+    a checkout of the repository keeps using the repository itself.
+    """
+    if os.environ.get("POLYKARA_HOME"):
+        return Path(os.environ["POLYKARA_HOME"]).expanduser()
+    if getattr(sys, "frozen", False):
+        return Path.home() / "Documents" / "PolyKara"
+    return ROOT
+
+
+HOME = _home()
+MANIFEST = HOME / "songs.csv"
+CONFIG_FILE = HOME / "polykara.toml"
+WORK = HOME / "work"
 RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA, EXTERNAL_LYRICS = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata", "lyrics"))
 MEDIA_SUFFIXES = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".flv", ".avi")
 TIMECODE = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
