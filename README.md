@@ -17,6 +17,8 @@ Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or 
 - **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
 - The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
 
+Windows may refuse to start an unsigned installer ("An application control policy has blocked this file", Smart App Control). Releases are being set up for free code signing by SignPath Foundation; see [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing policy. Until a signed release is out, right-click the downloaded installer → Properties → tick **Unblock**, then run it again.
+
 To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Python 3.11 or newer). It downloads ffmpeg and yt-dlp, runs PyInstaller, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program, and attaches the installer to a release when a `v*` tag is pushed.
 
 On Linux and macOS, `python3 polykara-gui.py` opens the same window from a checkout (it needs Python with Tk and the tools listed below).
