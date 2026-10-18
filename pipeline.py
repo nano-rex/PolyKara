@@ -17,6 +17,7 @@ from polykara.app import prepare
 from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
 from polykara.ktv import decorate
+from polykara.localmedia import add_files, bring_in, is_local, probe
 from polykara.romanize import MISSING as MISSING_ROMANIZERS
 from polykara.charts import add_selected
 from polykara.config import ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, load_config, run, require_current_ytdlp
@@ -101,8 +102,11 @@ def download_subtitles(row: dict[str, str], dry_run: bool) -> None:
         marker.write_text("", encoding="utf-8")
 
 
-def media_problem(path: Path) -> str | None:
-    """Why a media file cannot be used, or None when it has video, audio, and a duration."""
+def media_problem(path: Path, audio_only: bool = False) -> str | None:
+    """Why a media file cannot be used, or None when it has video, audio, and a duration.
+
+    audio_only accepts a file without video, for songs added from local audio files.
+    """
     try:
         result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of", "json", str(path)], capture_output=True, text=True, check=False, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -119,7 +123,7 @@ def media_problem(path: Path) -> str | None:
     # A video-only file is what an interrupted or failed merge leaves behind.
     if "audio" not in streams:
         return "it has no audio track"
-    if "video" not in streams:
+    if "video" not in streams and not audio_only:
         return "it has no video track"
     return None
 
@@ -161,7 +165,9 @@ def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> 
             complete = False
             print(f"WARN {sid}: external lyrics lookup failed ({describe(exc)})")
     # The lyric providers are asked first; YouTube is only contacted when files are still missing.
-    if dry_run or force or len(check_lyrics(row).files) < report.min_sources:
+    if is_local(row["url"]):
+        pass  # a file on this computer has no YouTube subtitles
+    elif dry_run or force or len(check_lyrics(row).files) < report.min_sources:
         try:
             require_current_ytdlp()
             if force and not dry_run:
@@ -183,6 +189,24 @@ def download_lyrics(row: dict[str, str], dry_run: bool, force: bool = False) -> 
 def download_song(row: dict[str, str], dry_run: bool, force: bool = False) -> None:
     """Fetch what a song is still missing. Lyrics and media that are already here cost no network request."""
     sid = row["id"]
+    if is_local(row["url"]):
+        # A file on this computer is placed first, so the lyrics search knows its length.
+        media = find_source(sid)
+        if media is not None and not force and media_problem(media, audio_only=True) is None:
+            print(f"{sid}: media found and playable; skipping")
+        elif dry_run:
+            print(f"{sid}: would copy {row['url']} into {RAW}")
+        else:
+            media = bring_in(row, RAW)
+            problem = media_problem(media, audio_only=True)
+            if problem:
+                media.unlink(missing_ok=True)
+                raise SongError(f"{row['url']} is not usable ({problem})")
+            print(f"{sid}: using local file {row['url']}")
+        download_lyrics(row, dry_run, force)
+        if not dry_run and check_lyrics(row).primary is None:
+            raise SkipSong(NO_LYRICS)
+        return
     # Lyrics come first: a song without any is set aside before its video is downloaded.
     download_lyrics(row, dry_run, force)
     if not dry_run and check_lyrics(row).primary is None:
@@ -229,7 +253,7 @@ def normalize_song(row: dict[str, str], dry_run: bool, force: bool = False) -> N
     sid = row["id"]
     require_lyrics(row)
     media, audio = source(sid), AUDIO / f"{sid}.flac"
-    problem = media_problem(media)
+    problem = media_problem(media, audio_only=is_local(row["url"]))
     if problem:
         raise SongError(f"{media.name} is not usable ({problem}); run download again to replace it")
     if not force and audio.exists() and audio.stat().st_mtime >= media.stat().st_mtime:
@@ -438,7 +462,7 @@ def logo_for(row: dict[str, str]) -> Path | None:
     return path
 
 
-def logo_filters(media: Path, video: str, frame_width: int | None = None) -> list[str]:
+def logo_filters(media: Path, video: str, frame_width: int | None = None, logo_input: int = 1) -> list[str]:
     """Scale and place the logo in PlayRes units so it matches the subtitle layout at any resolution."""
     config = load_config()
     settings = config["logo"]
@@ -449,7 +473,7 @@ def logo_filters(media: Path, video: str, frame_width: int | None = None) -> lis
     x = str(margin_x) if "left" in position else f"W-w-{margin_x}" if "right" in position else "(W-w)/2"
     y = str(margin_y) if "top" in position else f"H-h-{margin_y}" if "bottom" in position else "(H-h)/2"
     opacity = min(1.0, max(0.0, float(settings.get("opacity", 1.0))))
-    return [f"[1:v]scale={width}:-1,format=rgba,colorchannelmixer=aa={opacity:g}[logo]", f"{video}[logo]overlay={x}:{y}[branded]"]
+    return [f"[{logo_input}:v]scale={width}:-1,format=rgba,colorchannelmixer=aa={opacity:g}[logo]", f"{video}[logo]overlay={x}:{y}[branded]"]
 
 
 def fit_filters(media: Path, video: str) -> tuple[list[str], int | None]:
@@ -479,6 +503,28 @@ def fit_filters(media: Path, video: str) -> tuple[list[str], int | None]:
         f"[fit_fg]{fitted}[fit_front]",
         "[fit_blurred][fit_front]overlay=(W-w)/2:(H-h)/2,setsar=1[fitted]",
     ], width
+
+
+def background_inputs(sid: str, media: Path, dry_run: bool) -> tuple[list[str], Path | None]:
+    """ffmpeg inputs for a still background when the media has no video, and the picture to size it by.
+
+    An audio file's embedded cover art is used when it has one; otherwise the
+    background is a plain colour ([render] background_color) at the PlayRes size.
+    """
+    info = probe(media)
+    if info["video"]:
+        return [], media
+    config = load_config()
+    width, height = int(config["video"]["play_res_x"]), int(config["video"]["play_res_y"])
+    if info["cover"]:
+        cover = RAW / f"{sid}.cover.png"
+        if not dry_run and not cover.exists():
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(media), "-map", "0:v:0", "-frames:v", "1", str(cover)], check=False, timeout=120)
+        if dry_run or cover.exists():
+            return ["-loop", "1", "-framerate", "25", "-i", str(cover)], cover
+    colour = str(config["render"].get("background_color", "black"))
+    # Already the frame size, so there is nothing to fit.
+    return ["-f", "lavfi", "-i", f"color=c={colour}:s={width}x{height}:r=25"], None
 
 
 def burn_subtitle(sid: str, subtitle: Path, ass_text: str, dry_run: bool) -> Path:
@@ -535,24 +581,29 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
     media, logo = source(sid), logo_for(row)
     match = re.search(r"^; PolyKaraIntroPaddingMs:\s*(\d+)", ass_text, re.MULTILINE)
     padding = int(match.group(1)) if match else 0
-    filters, video, audio = [], "[0:v]", "0:a:0?"
+    inputs, picture = background_inputs(sid, media, dry_run)
+    # Inputs: [background,] media [, logo]. A song from an audio file gets a still background.
+    sound = 1 if inputs else 0
+    filters, video, audio = [], "[0:v]", f"{sound}:a:0?"
     if padding:
         filters.append(f"{video}tpad=start_mode=clone:start_duration={padding / 1000:g}[padded]")
-        filters.append(f"[0:a:0]adelay={padding}:all=1[a]")
+        filters.append(f"[{sound}:a:0]adelay={padding}:all=1[a]")
         video, audio = "[padded]", "[a]"
-    fitted, frame_width = fit_filters(media, video)
+    fitted, frame_width = fit_filters(picture, video) if picture is not None else ([], int(load_config()["video"]["play_res_x"]))
     if fitted:
         filters += fitted
         video = "[fitted]"
     if logo is not None:
-        filters += logo_filters(media, video, frame_width)
+        filters += logo_filters(picture, video, frame_width, sound + 1)
         video = "[branded]"
     burned = burn_subtitle(sid, subtitle, ass_text, dry_run)
     # ffmpeg runs inside the ASS directory: ids are filter-safe, absolute paths are not.
     filters.append(f"{video}ass={burned.name}[v]")
     partial = OUTPUT / f"{sid}.partial.mp4"
-    cmd = ["ffmpeg", "-hide_banner", "-y", "-i", str(media)] + (["-i", str(logo)] if logo is not None else [])
-    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", audio] + encoder_args() + [str(partial)]
+    cmd = ["ffmpeg", "-hide_banner", "-y"] + inputs + ["-i", str(media)] + (["-i", str(logo)] if logo is not None else [])
+    # A still background never ends by itself; stop at the end of the song (plus any intro padding).
+    length = ["-t", f"{probe(media)['duration'] + padding / 1000:.3f}"] if inputs else []
+    cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", audio] + length + encoder_args() + [str(partial)]
     OUTPUT.mkdir(parents=True, exist_ok=True)
     try:
         run(cmd, dry_run, cwd=subtitle.parent)
@@ -713,7 +764,14 @@ def main() -> int:
     if sys.argv[1:2] == ["selftest"]:
         return selftest()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
+    if sys.argv[1:2] == ["add"]:
+        # pipeline.py add FILE...: add media files on this computer as songs.
+        added = add_files([Path(item) for item in sys.argv[2:]])
+        for row in added:
+            print(f"added {row['id']}: {row['artist'] or '(singer unknown)'} - {row['title']} [{row['language']}] from {row['url']}")
+        print(f"{len(added)} song(s) added to songs.csv; check their language, singer and voice before processing")
+        return 0
+    parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa", "add"))
     parser.add_argument("songs", nargs="*", help="optional song ids from songs.csv; default is every song")
     parser.add_argument("--only", default="", help="comma-separated song ids to work on (same as listing them after the command)")
     parser.add_argument("--dry-run", action="store_true")

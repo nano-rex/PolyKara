@@ -20,6 +20,8 @@ extra_args = []
 # bars ("pad"), or left as it is ("none").
 fit = "blur"
 blur_sigma = 30
+# Background for songs made from audio files without cover art (an ffmpeg colour name or 0xRRGGBB).
+background_color = "black"
 
 [logo]
 # Image burned into every video; a logo_file value in songs.csv overrides it per song.

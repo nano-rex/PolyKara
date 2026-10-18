@@ -33,7 +33,7 @@ MANIFEST = HOME / "songs.csv"
 CONFIG_FILE = HOME / "polykara.toml"
 WORK = HOME / "work"
 RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA, EXTERNAL_LYRICS = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata", "lyrics"))
-MEDIA_SUFFIXES = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".flv", ".avi")
+MEDIA_SUFFIXES = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".flv", ".avi", ".ts", ".mpg", ".mpeg", ".vob", ".wmv", ".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus", ".aac", ".wma")
 TIMECODE = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
 WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")
 Entry = tuple[int, int, str, list[tuple[int, int, str]]]
@@ -51,7 +51,7 @@ SPEAKER_TAG = re.compile(r"^\[(?:singer|speaker|vocal|role)\s*:\s*([^\]]+)\]\s*"
 
 DEFAULT_CONFIG = {
     "video": {"play_res_x": 1920, "play_res_y": 1080, "extend_intro": True},
-    "render": {"video_codec": "libx264", "preset": "medium", "crf": 18, "pixel_format": "yuv420p", "audio_codec": "aac", "audio_bitrate": "192k", "extra_args": [], "fit": "blur", "blur_sigma": 30},
+    "render": {"video_codec": "libx264", "preset": "medium", "crf": 18, "pixel_format": "yuv420p", "audio_codec": "aac", "audio_bitrate": "192k", "extra_args": [], "fit": "blur", "blur_sigma": 30, "background_color": "black"},
     "logo": {"file": "", "width": 220, "position": "top-right", "margin_x": 40, "margin_y": 40, "opacity": 1.0},
     "title": {"enabled": True, "text": "{title}  |  {artist}", "font": "Arial", "size": 42, "color": "&H00FFFFFF", "horizontal": "center", "vertical": "top", "margin_l": 40, "margin_r": 40, "margin_v": 40, "start_ms": 0, "duration_ms": 6000, "fade_in_ms": 300, "fade_out_ms": 300, "bold": True, "italic": False, "outline": 2, "shadow": 1},
     "credit": {"enabled": True, "text": "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}", "font": "Arial", "size": 28, "color": "&H00FFFFFF", "horizontal": "center", "vertical": "bottom", "margin_l": 40, "margin_r": 40, "margin_v": 70, "start_ms": 0, "duration_ms": 6000, "fade_in_ms": 300, "fade_out_ms": 300, "bold": False, "italic": False, "outline": 2, "shadow": 1},

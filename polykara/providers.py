@@ -120,6 +120,9 @@ def metadata_matches(title: str, artist: str, candidate: dict) -> bool:
         return False
     # Chart rows list several artists; one of them appearing on either side is enough.
     names = [lyric_text(name) for name in re.split(r",|&|\bfeat\.?|\bft\.?|\bx\b", artist, flags=re.IGNORECASE)]
+    if not any(names):
+        # A song added from a file name without a singer: the title has to be enough.
+        return True
     return not found_artist or any(name and (name in found_artist or found_artist in name) for name in names)
 
 

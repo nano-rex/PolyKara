@@ -21,14 +21,15 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .app import prepare
-from .config import ASS, CONFIG_FILE, HOME, MANIFEST, OUTPUT, ROOT
+from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, ROOT
+from .localmedia import add_files, describe, new_id
 from .manifest import REQUIRED_COLUMNS, find_source
 
 COLUMNS = ["id", "url", "title", "artist", "lyricist", "composer", "producer", "template", "language", "subtitle_langs", "lyrics_file", "word_timing_file", "logo_file", "prompt_ms", "align_model", "lyric_sources", "lyric_pages", "voice"]
 DEFAULTS = {"template": "solo", "prompt_ms": "1000", "align_model": "auto"}
 # (label, field, kind): kind is "text", a list of choices, or "file".
 FIELDS = [
-    ("YouTube or video URL", "url", "text"),
+    ("Video URL or media file", "url", "file"),
     ("Title", "title", "text"),
     ("Singer", "artist", "text"),
     ("Composer", "composer", "text"),
@@ -102,14 +103,6 @@ def song_state(sid: str) -> str:
     return "waiting"
 
 
-def new_id(title: str, taken: set[str]) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")[:40] or "song"
-    candidate, number = base, 2
-    while candidate in taken:
-        candidate, number = f"{base}-{number}", number + 1
-    return candidate
-
-
 class SongDialog(tk.Toplevel):
     def __init__(self, parent: "App", song: dict[str, str] | None, taken: set[str]):
         super().__init__(parent)
@@ -133,7 +126,7 @@ class SongDialog(tk.Toplevel):
                 widget = ttk.Entry(body, textvariable=variable, width=50)
             widget.grid(row=number, column=1, sticky="ew", pady=3)
             if kind == "file":
-                ttk.Button(body, text="Browse…", command=lambda v=variable: self.browse(v)).grid(row=number, column=2, padx=(6, 0))
+                ttk.Button(body, text="Browse…", command=lambda v=variable, f=field: self.browse(v, f)).grid(row=number, column=2, padx=(6, 0))
         ttk.Label(body, text="Leave the song id empty to make one from the title.", foreground="#666").grid(row=len(FIELDS), column=1, sticky="w")
         buttons = ttk.Frame(body)
         buttons.grid(row=len(FIELDS) + 1, column=0, columnspan=3, sticky="e", pady=(12, 0))
@@ -143,20 +136,27 @@ class SongDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _: self.destroy())
         self.grab_set()
 
-    def browse(self, variable: tk.StringVar) -> None:
+    def browse(self, variable: tk.StringVar, field: str) -> None:
         chosen = filedialog.askopenfilename(parent=self, initialdir=str(HOME))
-        if chosen:
-            path = Path(chosen)
-            try:
-                chosen = str(path.relative_to(HOME))
-            except ValueError:
-                pass
-            variable.set(chosen)
+        if not chosen:
+            return
+        path = Path(chosen)
+        if field == "url":
+            # Fill in what the file itself says, without overwriting anything typed already.
+            guessed = describe(path, set())
+            for name in ("title", "artist", "language"):
+                if not self.values[name].get().strip():
+                    self.values[name].set(guessed[name])
+        try:
+            chosen = str(path.relative_to(HOME))
+        except ValueError:
+            pass
+        variable.set(chosen)
 
     def save(self) -> None:
         song = {**DEFAULTS, **self.original, **{field: variable.get().strip() for field, variable in self.values.items()}}
         if not song["url"]:
-            messagebox.showerror("PolyKara", "Enter the video URL.", parent=self)
+            messagebox.showerror("PolyKara", "Enter the video URL, or choose a media file with Browse.", parent=self)
             return
         if not song["language"]:
             messagebox.showerror("PolyKara", "Choose the language the song is sung in.", parent=self)
@@ -210,7 +210,7 @@ class App(tk.Tk):
 
         toolbar = ttk.Frame(self, padding=(8, 8, 8, 0))
         toolbar.pack(fill="x")
-        for text, command in (("Add song", self.add_song), ("Edit", self.edit_song), ("Remove", self.remove_song)):
+        for text, command in (("Add song", self.add_song), ("Add files", self.add_media_files), ("Edit", self.edit_song), ("Remove", self.remove_song)):
             ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=(0, 4))
         ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
         for text, command in (("Edit subtitles", self.edit_subtitles), ("Play video", self.play_video), ("Open videos folder", lambda: self.open_folder(OUTPUT)), ("Open data folder", lambda: self.open_folder(HOME))):
@@ -280,6 +280,23 @@ class App(tk.Tk):
         if dialog.result:
             self.songs.append(dialog.result)
             self.save_songs()
+
+    def add_media_files(self) -> None:
+        patterns = " ".join(f"*{suffix}" for suffix in MEDIA_SUFFIXES)
+        chosen = filedialog.askopenfilenames(parent=self, title="Add songs from media files", filetypes=[("Video and audio files", patterns), ("All files", "*.*")])
+        if not chosen:
+            return
+        added = add_files([Path(item) for item in chosen])
+        self.fields, self.songs = read_songs()
+        self.refresh()
+        for row in added:
+            self.tree.selection_add(row["id"])
+        skipped = len(chosen) - len(added)
+        note = f"\n{skipped} file(s) were already in the list." if skipped else ""
+        if added:
+            messagebox.showinfo("PolyKara", f"Added {len(added)} song(s). Title and singer were read from each file's tags or name and are used to search for lyrics.\n\nCheck the language, singer and voice of the new songs (double-click to edit) before making videos.{note}")
+        else:
+            messagebox.showinfo("PolyKara", "No songs were added." + note)
 
     def edit_song(self) -> None:
         ids = self.selected_ids()

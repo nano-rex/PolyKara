@@ -43,6 +43,18 @@ python3 pipeline.py process --reprocess --realign
 
 The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable or has no audio track, such as an interrupted download or a failed merge, is removed and downloaded again. Lyrics are collected until the song has at least three usable lyric files (see the accuracy check below); a song that already has them makes no subtitle or lyric-provider request. When every source has been tried, that is remembered so the same lookups are not repeated on every run; `python3 pipeline.py download --reprocess` tries them again.
 
+### Songs from media files on your computer
+
+Videos and audio files on your computer can be used instead of a URL. In the window, press **Add files** and pick one or more files; on the command line, run:
+
+```bash
+python3 pipeline.py add "D:/Music/Raye - Escapism.mp4" ~/Music/*.mp3
+```
+
+Each file becomes a row in `songs.csv` with its path in the `url` column. The title and singer come from the file's own tags (title/artist) or, when it has none, from its name: `Artist - Title.mp4`, `01. Artist - Title (Official Video).mkv`, `歌手-歌名.mp3`, or just `Title.mp3`. The language is guessed from the script of the title (Chinese, Japanese, Korean, otherwise English), so check the language, singer and voice before making videos. They are what the lyrics search looks for, together with the file's length.
+
+The download step links or copies the file into `work/raw` instead of running yt-dlp, and skips the YouTube subtitle lookup. Audio files (mp3, m4a, flac, wav, ogg, ...) are rendered over their embedded cover art, filled out to the frame like any other picture, or over a plain background (`[render] background_color`) when they have none. In the song form, **Browse…** next to the URL also picks a file and fills in the title, singer and language from it.
+
 ### One song failing never stops the batch
 
 Every step runs song by song. When a step fails for one song (a download error, a missing lyrics file, an alignment or FFmpeg error), PolyKara prints `SKIP <id>: <step> failed (<reason>)`, leaves that song out of the remaining steps, and continues with the next song. A summary at the end lists each skipped song with its reason, and the command exits with status 1 so scripts can notice. Fix the cause and rerun the same command; only the unfinished songs are processed.
