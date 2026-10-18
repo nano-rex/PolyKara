@@ -2,9 +2,14 @@
 work/
 __pycache__/
 *.py[cod]
+songs.csv.tmp
 
 # Local secrets and editor files
 .env
 .venv/
 .idea/
 .vscode/
+
+# Windows build output
+packaging/build/
+dist/

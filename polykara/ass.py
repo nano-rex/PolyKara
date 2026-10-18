@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
-from .romanize import romanize
+from .layout import text_width
+from .romanize import romanize, romanize_words, ruby_groups
 from .subtitle import split_speaker
 
 
@@ -11,7 +12,25 @@ def at(value: int) -> str:
 
 
 def esc(value: str) -> str:
-    return value.replace("\\", "\\N").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+    # A literal backslash would start an ASS override sequence, so it is shown as a slash.
+    return value.replace("\\", "/").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+
+
+def karaoke_text(words, line_start: int, tag: str) -> str:
+    """Build karaoke tags whose durations add up from the line start.
+
+    ASS karaoke durations are cumulative, so the wait before the first word and
+    every pause between words is emitted as an empty \\k syllable.
+    """
+    parts, cursor = [], max(0, line_start) // 10
+    for left, right, word in words:
+        begin = max(cursor, left // 10)
+        finish = max(begin + 1, right // 10)
+        if begin > cursor:
+            parts.append(f"{{\\k{begin - cursor}}}")
+        parts.append(f"{{\\{tag}{finish - begin}}}{esc(word)}")
+        cursor = finish
+    return "".join(parts)
 
 
 def alignment(values: dict) -> int:
@@ -22,33 +41,104 @@ def alignment(values: dict) -> int:
     return vertical + horizontal + 1
 
 
-def intro_padding_ms(entries) -> int:
-    config = load_config()
-    if not config["video"].get("extend_intro", True) or not entries:
-        return 0
-    first_lyric = min(start for start, _, _, _ in entries)
+def card_end_ms(config: dict) -> int:
     card_end = 0
     for name in ("title", "credit"):
         values = config[name]
         if values.get("enabled", True):
             card_end = max(card_end, int(values.get("start_ms", 0)) + max(0, int(values.get("duration_ms", 6000))))
-    return max(0, card_end - first_lyric)
+    return card_end
+
+
+def intro_padding_ms(entries) -> int:
+    config = load_config()
+    if not config["video"].get("extend_intro", True) or not entries:
+        return 0
+    first_lyric = min(start for start, _, _, _ in entries)
+    return max(0, card_end_ms(config) - first_lyric)
+
+
+def ruby_events(groups: list[dict], shown: int, end: int, colour: str, tag: str, karaoke: bool, video: dict, lyric: dict, roman: dict) -> list[str] | None:
+    """Place each romanized piece directly above the characters it reads.
+
+    Every piece and its characters become a pair of events centred on the same
+    x position. Returns None when the line cannot be laid out this way, so the
+    caller falls back to two plain rows.
+    """
+    width, height = float(video["play_res_x"]), float(video["play_res_y"])
+    lyric_size, roman_size = float(lyric["size"]), float(roman["size"])
+    lyric_bold, roman_bold = bool(lyric.get("bold", True)), bool(roman.get("bold", False))
+    spacing = lyric_size * float(roman.get("ruby_spacing", 0.15))
+    space = text_width(" ", lyric["font"], lyric_size, lyric_bold)
+    columns = []
+    for group in groups:
+        base = "".join(word for _, _, word in group["tokens"])
+        column = max(text_width(base, lyric["font"], lyric_size, lyric_bold), text_width(group["roman"] or "", roman["font"], roman_size, roman_bold)) + spacing
+        columns.append((space if group["space_before"] else 0.0, column))
+    total = sum(before + column for before, column in columns)
+    left_margin, right_margin = float(lyric["margin_l"]), float(lyric["margin_r"])
+    available = width - left_margin - right_margin
+    scale = min(1.0, available / total) if total else 1.0
+    position = alignment(lyric)
+    horizontal, vertical = (position - 1) % 3, (position - 1) // 3
+    # A line too long to fit at half size, or vertically centred lyrics, keep the two-row layout.
+    if scale < 0.5 or vertical == 1:
+        return None
+    x = left_margin if horizontal == 0 else width - right_margin - total * scale if horizontal == 2 else left_margin + (available - total * scale) / 2
+    gap = float(roman.get("gap", 6))
+    if vertical == 0:
+        anchor, base_y = 2, height - float(lyric["margin_v"])
+        roman_y = base_y - lyric_size * scale - gap
+    else:
+        anchor, roman_y = 8, float(lyric["margin_v"])
+        base_y = roman_y + roman_size * scale + gap
+    size_tags = f"\\fscx{scale * 100:.0f}\\fscy{scale * 100:.0f}" if scale < 1 else ""
+    events = []
+    for group, (before, column) in zip(groups, columns):
+        centre = x + (before + column / 2) * scale
+        x += (before + column) * scale
+        events.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,0,,{{\\an{anchor}\\pos({centre:.0f},{base_y:.0f}){size_tags}}}{colour}{karaoke_text(group['tokens'], shown, tag)}")
+        if group["roman"]:
+            reading = karaoke_text([(group["tokens"][0][0], group["tokens"][-1][1], group["roman"])], shown, tag) if karaoke else esc(group["roman"])
+            events.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{{\\an{anchor}\\pos({centre:.0f},{roman_y:.0f}){size_tags}}}{colour}{reading}")
+    return events
 
 
 def ass(row: dict[str, str], entries) -> str:
     config = load_config()
+    if str(config.get("layout", {}).get("mode", "pairs")).lower() != "single":
+        from .ktv import document
+
+        return document(row, entries, config, at, esc, karaoke_text, SPEAKER_PALETTE)
     video, title_style = config["video"], config["title"]
     credit_style, lyric_style = config["credit"], dict(config["lyric"])
     karaoke_style = config.get("karaoke", {})
     lyric_style["color"] = karaoke_style.get("active_color", lyric_style.get("color", "&H00FF0000"))
     lyric_style["secondary_color"] = karaoke_style.get("inactive_color", lyric_style.get("secondary_color", "&H00FFFFFF"))
     prompt_style, watermark_style = config["prompt"], config["watermark"]
-    romanization_style = config.get("romanization", {})
+    romanization_style = dict(config.get("romanization", {}))
+    romanize_karaoke = bool(romanization_style.get("karaoke", True))
+    if romanize_karaoke:
+        # The romanized row fills with the same colours as the original row.
+        romanization_style["color"], romanization_style["secondary_color"] = lyric_style["color"], lyric_style["secondary_color"]
+    # MarginV for lyric lines that have a romanized row; 0 keeps the style's margin.
+    lyric_margin = 0
+    if str(romanization_style.get("margin_v", "auto")).lower() == "auto":
+        # Two rows: the romanized reading on top, the original characters directly below it.
+        lyric_alignment, gap = alignment(lyric_style), int(romanization_style.get("gap", 6))
+        romanization_style.update(alignment=lyric_alignment, margin_l=lyric_style["margin_l"], margin_r=lyric_style["margin_r"])
+        if lyric_alignment >= 7:
+            romanization_style["margin_v"] = lyric_style["margin_v"]
+            lyric_margin = int(lyric_style["margin_v"]) + int(romanization_style["size"]) + gap
+        else:
+            romanization_style["margin_v"] = int(lyric_style["margin_v"]) + int(lyric_style["size"]) + gap
     def text_template(values: dict, fallback: str) -> str:
         try:
             return str(values.get("text", fallback)).format(**row)
         except KeyError as exc:
             raise ValueError(f"Unknown title/credit template field: {exc.args[0]}") from exc
+        except (IndexError, ValueError) as exc:
+            raise ValueError(f"Invalid title/credit template ({exc}); write literal braces as {{{{ and }}}}") from exc
     title = esc(text_template(title_style, "{title}  |  {artist}"))
     credit = esc(text_template(credit_style, "作词：{lyricist}    作曲：{composer}    字幕制作：{producer}"))
     def style(name: str, values: dict, primary: str, secondary: str = "&H00FFFFFF", outline: str = "&H80000000", back: str = "&H50000000") -> str:
@@ -90,14 +180,16 @@ def ass(row: dict[str, str], entries) -> str:
     max_singers = int(config.get("singers", {}).get("max", MAX_SINGERS))
     if len(speakers) > max_singers:
         raise ValueError(f"{row['id']} has {len(speakers)} singers; maximum is {max_singers}")
-    slots = {speaker.casefold(): SPEAKER_PALETTE[index] for index, speaker in enumerate(speakers)}
+    slots = {speaker.casefold(): SPEAKER_PALETTE[index % len(SPEAKER_PALETTE)] for index, speaker in enumerate(speakers)}
     timing = config.get("timing", {})
     long_pause_ms = int(timing.get("long_pause_ms", LONG_PAUSE_MS))
     dot_interval_ms = int(timing.get("dot_interval_ms", DOT_INTERVAL_MS))
     karaoke_tag = str(karaoke_style.get("tag", "kf")).lower()
     if karaoke_tag not in {"k", "kf"}:
         raise ValueError("karaoke.tag must be 'k' or 'kf'")
-    previous_end = 0
+    lead_in_ms = max(0, int(timing.get("lead_in_ms", 0)))
+    # Lines never appear early enough to collide with the title cards or the previous line.
+    previous_end, shown_until = 0, min(card_end_ms(config), first_lyric + intro_padding)
     for start, end, text, words in entries:
         start += intro_padding
         end += intro_padding
@@ -105,17 +197,37 @@ def ass(row: dict[str, str], entries) -> str:
         if start - previous_end >= long_pause_ms:
             for count in range(1, 4):
                 dot_start = start - (4 - count) * dot_interval_ms
-                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,220,,{'.' * count}")
+                out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,0,,{'.' * count}")
+        shown = min(start, max(shown_until, start - lead_in_ms))
         if words:
-            visible = " ".join(f"{{\\{karaoke_tag}{max(1, round((right - left) / 10))}}}{esc(word)}" for left, right, word in words)
+            visible = karaoke_text([(left + intro_padding, right + intro_padding, word) for left, right, word in words], shown, karaoke_tag)
         else:
             visible = esc(lyric_text)
+        colour = ""
         if speaker:
             semantic = {"duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF", "backing": "&H0000FF00"}
-            visible = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}{visible}"
-        romanized = romanize(lyric_text, row.get("language", ""), romanization_style)
+            colour = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}"
+            visible = colour + visible
+        language = row.get("language", "")
+        if words and str(romanization_style.get("layout", "ruby")).lower() == "ruby":
+            groups = ruby_groups(words, language, romanization_style)
+            shifted = [{**group, "tokens": [(left + intro_padding, right + intro_padding, word) for left, right, word in group["tokens"]]} for group in groups or []]
+            events = ruby_events(shifted, shown, end, colour, karaoke_tag, romanize_karaoke, video, lyric_style, romanization_style) if groups else None
+            if events:
+                out.extend(events)
+                previous_end = max(previous_end, end)
+                shown_until = max(shown_until, end)
+                continue
+        timed_roman = romanize_words(words, language, romanization_style) if words else None
+        if timed_roman and romanize_karaoke:
+            # Each romanized piece is timed from the characters it reads, so both rows fill together.
+            romanized = colour + karaoke_text([(left + intro_padding, right + intro_padding, word) for left, right, word in timed_roman], shown, karaoke_tag)
+        else:
+            plain = "".join(word for _, _, word in timed_roman).strip() if timed_roman else romanize(lyric_text, language, romanization_style)
+            romanized = esc(plain) if plain else ""
         if romanized:
-            out.append(f"Dialogue: 1,{at(start)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
-        out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
+            out.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,0,,{romanized}")
+        out.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,{lyric_margin if romanized else 0},,{visible}")
         previous_end = max(previous_end, end)
+        shown_until = max(shown_until, end)
     return "\n".join(out) + "\n"
