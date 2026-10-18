@@ -85,7 +85,8 @@ class DocumentTest(unittest.TestCase):
 
     def test_voice_column_and_speaker_tags_choose_colours(self):
         config = load_config()
-        text = ass({**ROW, "voice": "male"}, [entry(20000, "[singer: 女] hello"), entry(22000, "again")])
+        tagged = entry(20000, "hello")
+        text = ass({**ROW, "voice": "male"}, [(tagged[0], tagged[1], "[singer: 女] hello", tagged[3]), entry(22000, "again")])
         lyric_style = next(line for line in text.splitlines() if line.startswith("Style: Lyric,"))
         self.assertIn(config["singers"]["male_color"], lyric_style)
         female, male = events(text, "Lyric")
