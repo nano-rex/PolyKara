@@ -38,12 +38,12 @@ def apply_template(template: str, params: dict, **timing: int) -> str:
         raise ValueError(f"Unknown effect template field: {exc}") from exc
 
 
-def karaoke_text(words, event_start: int, tag: str, syllable_template: str = "", params: dict | None = None) -> str:
+def karaoke_text(words, event_start: int, tag: str, syllable_template: str = "", params: dict | None = None, separator: str = " ") -> str:
     params = params or {}
     parts, cursor, previous = [], event_start, ""
     for index, (left, right, word) in enumerate(words):
         gap = left - cursor
-        separator = "" if not previous or (CJK.search(previous[-1]) and CJK.search(word[:1])) else " "
+        separator = "" if not previous or (CJK.search(previous[-1]) and CJK.search(word[:1])) else separator
         if gap >= 10:
             parts.append(f"{{\\k{round(gap / 10)}}}")
         duration = max(1, round((right - left) / 10))
