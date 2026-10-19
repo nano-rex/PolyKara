@@ -132,3 +132,34 @@ margin_v = 40
 [charts]
 # Remove a region code to disable it from default --trending selection.
 enabled_regions = ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]
+
+[layout]
+# single: one line at a time (default). alternate: KTV style, lines alternate between
+# a top row and a bottom row and appear lead_in_ms early so singers can read ahead.
+mode = "single"
+lead_in_ms = 1500
+top_alignment = 1
+bottom_alignment = 3
+
+[effects]
+# Per-syllable karaoke effects: none, fade, pop, glow.
+# Override a preset with your own ASS tags; {start} {mid} {end} {dur} {index} are
+# milliseconds relative to the line, and any key in params is also available.
+preset = "none"
+# syllable = '\fscx100\t({start},{mid},\fscx{scale})\t({mid},{end},\fscx100)'
+# line = '\fad({fade_in},{fade_out})'
+[effects.params]
+# scale = 125
+
+[live]
+# python3 pipeline.py live  ->  /dev/videoN needs v4l2loopback (OBS can capture it),
+# or use an rtmp://, udp://, or srt:// URL. audio_output: none, pulse, or alsa.
+target = "/dev/video10"
+audio_output = "none"
+audio_device = "default"
+
+# Music player (`python3 pipeline.py player`): folders scanned for audio and video.
+# Relative paths are inside the PolyKara folder. Lyrics are read from a sidecar file
+# with the same name (.krc .qrc .ksc .lrc .ass .srt .vtt .txt), else looked up on LRCLIB.
+# [player]
+# library = ["~/Music", "work/output"]

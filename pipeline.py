@@ -12,7 +12,8 @@ from pathlib import Path
 from polykara.alignment import align
 from polykara.ass import ass
 from polykara.charts import REGIONS, add_selected
-from polykara.config import ALIGN, ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, run, require_current_ytdlp
+from polykara.config import ALIGN, ASS, AUDIO, EXTERNAL_LYRICS, METADATA, OUTPUT, RAW, SUBTITLES, enabled_regions, load_config, run, require_current_ytdlp
+from polykara.lyricformats import READERS as LYRIC_READERS
 from polykara.manifest import check, rows, source
 from polykara.providers import external_lyrics_path, external_webpage_path, fetch_external_lyrics
 from polykara.subtitle import apply_word_timing, downloaded_subtitle, lrc, plain_lyrics_entries, timed_subtitle, word_json
@@ -71,12 +72,18 @@ def lyrics(dry_run: bool) -> None:
             path = Path(raw) if Path(raw).is_absolute() else Path(__file__).resolve().parent / raw
             if not path.exists():
                 raise SystemExit(f"Lyrics file not found: {path}")
-            entries = lrc(path) if path.suffix.lower() == ".lrc" else timed_subtitle(path) if path.suffix.lower() in {".srt", ".vtt"} else []
+            suffix = path.suffix.lower()
+            entries = lrc(path) if suffix == ".lrc" else timed_subtitle(path) if suffix in {".srt", ".vtt"} else LYRIC_READERS[suffix](path) if suffix in LYRIC_READERS else []
             if not entries:
-                raise SystemExit(f"Expected .lrc, .srt, or .vtt: {path}")
+                raise SystemExit(f"Expected .lrc, .srt, .vtt, .ksc, .krc, or .qrc: {path}")
             source_label = "manifest lyrics_file"
         if not entries:
             raise SystemExit(f"No timed lines found in {path}")
+        if all(words for _, _, _, words in entries):
+            if not dry_run:
+                (ASS / f"{row['id']}.auto.ass").write_text(ass(row, entries), encoding="utf-8")
+            print(f"{row['id']}: {len(entries)} lines from {source_label} with native word timing -> {row['id']}.auto.ass")
+            continue
         timing_path = word_json(row)
         if timing_path is None and not dry_run:
             print(f"{row['id']}: word timing missing; starting automatic alignment")
@@ -129,9 +136,11 @@ def edit(row: dict[str, str]) -> None:
         print(f"Open this file in Aegisub or Subtitle Edit: {edited}")
 
 
-def render(dry_run: bool, force: bool) -> None:
+def render(dry_run: bool, force: bool, song: str = "") -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    song_rows = rows()
+    song_rows = [row for row in rows() if not song or row["id"] == song]
+    if song and not song_rows:
+        raise SystemExit(f"Unknown song id: {song}")
     if not dry_run and any((ASS / f"{row['id']}.auto.ass").exists() and "{\\k" not in (ASS / f"{row['id']}.auto.ass").read_text(encoding="utf-8") for row in song_rows):
         print("Some songs have no word timing; starting automatic alignment where possible")
         lyrics(False)
@@ -148,18 +157,45 @@ def render(dry_run: bool, force: bool) -> None:
         if "{\\k" not in subtitle.read_text(encoding="utf-8"):
             print(f"SKIP {row['id']}: no word-level timing; no output rendered")
             continue
-        subtitle_filter = str(subtitle).replace("\\", "/").replace(":", "\\:")
-        ass_text = subtitle.read_text(encoding="utf-8")
-        padding = 0
-        for line in ass_text.splitlines():
-            if line.startswith("; PolyKaraIntroPaddingMs:"):
-                padding = int(line.rsplit(":", 1)[1].strip())
-                break
-        if padding:
-            filter_graph = f"[0:v]tpad=start_mode=clone:start_duration={padding / 1000:g},ass={subtitle_filter}[v];[0:a]adelay={padding}:all=1[a]"
-            run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-filter_complex", filter_graph, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
+        run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-filter_complex", filter_graph(subtitle), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
+
+
+def filter_graph(subtitle: Path) -> str:
+    """FFmpeg graph burning the ASS into [v] and passing audio as [a], honouring intro padding."""
+    subtitle_filter = str(subtitle).replace("\\", "/").replace(":", "\\:")
+    padding = 0
+    for line in subtitle.read_text(encoding="utf-8").splitlines():
+        if line.startswith("; PolyKaraIntroPaddingMs:"):
+            padding = int(line.rsplit(":", 1)[1].strip())
+            break
+    if padding:
+        return f"[0:v]tpad=start_mode=clone:start_duration={padding / 1000:g},ass={subtitle_filter}[v];[0:a]adelay={padding}:all=1[a]"
+    return f"[0:v]ass={subtitle_filter}[v];[0:a]anull[a]"
+
+
+def live(dry_run: bool, target: str, song: str) -> None:
+    """Play karaoke in real time to a v4l2loopback camera (e.g. for OBS) or a stream URL."""
+    settings = load_config().get("live", {})
+    target = target or str(settings.get("target", "/dev/video10"))
+    selected = [row for row in rows() if not song or row["id"] == song]
+    if song and not selected:
+        raise SystemExit(f"Unknown song id: {song}")
+    for row in selected:
+        subtitle = render_subtitle(row)
+        if not subtitle.exists() or "{\\k" not in subtitle.read_text(encoding="utf-8"):
+            print(f"SKIP {row['id']}: no word-timed ASS; run lyrics first")
+            continue
+        cmd = ["ffmpeg", "-hide_banner", "-re", "-i", str(source(row["id"])), "-filter_complex", filter_graph(subtitle)]
+        if target.startswith("/dev/video"):
+            cmd += ["-map", "[v]", "-pix_fmt", "yuv420p", "-f", "v4l2", target]
+            audio = str(settings.get("audio_output", "none")).lower()
+            if audio != "none":
+                cmd += ["-map", "[a]", "-f", audio, str(settings.get("audio_device", "default"))]
         else:
-            run(["ffmpeg", "-hide_banner", "-y", "-i", str(source(row["id"])), "-vf", f"ass={subtitle_filter}", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], dry_run)
+            container = "flv" if target.startswith(("rtmp://", "rtmps://")) else "mpegts"
+            cmd += ["-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-g", "60", "-c:a", "aac", "-b:a", "160k", "-f", container, target]
+        print(f"LIVE {row['id']} -> {target}")
+        run(cmd, dry_run)
 
 
 def cleanup(dry_run: bool, drop_source: bool) -> None:
@@ -189,7 +225,11 @@ def process(dry_run: bool, force: bool) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa"))
+    parser.add_argument("command", choices=("check", "download", "normalize", "align", "lyrics", "edit", "studio", "player", "render", "live", "process", "cleanup", "qa"))
+    parser.add_argument("--target", default="", help="live: /dev/videoN (v4l2loopback) or rtmp://, udp://, srt:// URL; defaults to live.target")
+    parser.add_argument("--song", default="", help="render/live: only this songs.csv id")
+    parser.add_argument("--port", type=int, default=8765, help="studio/player: local web server port")
+    parser.add_argument("--no-browser", action="store_true", help="studio/player: do not open a browser")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reprocess", action="store_true", help="render songs again even when the final MP4 already exists")
     parser.add_argument("--drop-source", action="store_true")
@@ -204,7 +244,11 @@ def main() -> int:
     elif args.command == "lyrics": lyrics(args.dry_run)
     elif args.command == "edit":
         for row in rows(): edit(row)
-    elif args.command == "render": render(args.dry_run, args.reprocess)
+    elif args.command in {"studio", "player"}:
+        from polykara.server import serve
+        serve(port=args.port, page="/" if args.command == "studio" else "/player", open_browser=not args.no_browser)
+    elif args.command == "render": render(args.dry_run, args.reprocess, args.song)
+    elif args.command == "live": live(args.dry_run, args.target, args.song)
     elif args.command == "process": process(args.dry_run, args.reprocess)
     elif args.command == "cleanup": cleanup(args.dry_run, args.drop_source)
     else: qa()

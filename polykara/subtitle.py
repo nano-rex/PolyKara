@@ -95,7 +95,7 @@ def lrc(path: Path) -> list[Entry]:
             words = [(item.start(), item.end(), lyric_text[item.end():marks_words[i + 1].start() if i + 1 < len(marks_words) else len(lyric_text)].strip()) for i, item in enumerate(marks_words)]
             tagged = f"[speaker:{speaker}] {lyric_text}" if speaker else lyric_text
             items.extend((ms(mark), tagged, words) for mark in marks)
-    items.sort()
+    items.sort(key=lambda item: item[0])  # stable: same-time lines (translations) keep file order
     result = []
     for i, (start, text, words) in enumerate(items):
         end = items[i + 1][0] if i + 1 < len(items) else start + max(2000, len(text) * 180)

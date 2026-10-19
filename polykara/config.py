@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import re
 import subprocess
@@ -41,6 +42,10 @@ DEFAULT_CONFIG = {
     "prompt": {"font": "Arial", "size": 44, "color": "&H00FFFFFF", "alignment": 1, "margin_l": 80, "margin_r": 80, "margin_v": 220, "bold": True, "italic": False, "outline": 2, "shadow": 1},
     "watermark": {"enabled": False, "text": "PolyKara", "font": "Arial", "size": 24, "color": "&H80FFFFFF", "alignment": 9, "margin_l": 40, "margin_r": 40, "margin_v": 40, "bold": False, "italic": False, "outline": 1, "shadow": 0},
     "charts": {"enabled_regions": ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]},
+    "layout": {"mode": "single", "lead_in_ms": 1500, "top_alignment": 1, "bottom_alignment": 3},
+    "effects": {"preset": "none", "params": {}},
+    "live": {"target": "/dev/video10", "audio_output": "none", "audio_device": "default"},
+    "player": {"library": ["~/Music", "work/output"]},
 }
 
 
@@ -54,7 +59,7 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def load_config() -> dict:
-    config = {key: (value.copy() if isinstance(value, dict) else list(value) if isinstance(value, list) else value) for key, value in DEFAULT_CONFIG.items()}
+    config = copy.deepcopy(DEFAULT_CONFIG)
     if CONFIG_FILE.exists():
         with CONFIG_FILE.open("rb") as handle:
             _merge(config, tomllib.load(handle))

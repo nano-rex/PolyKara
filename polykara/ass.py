@@ -1,8 +1,56 @@
 from __future__ import annotations
 
+import re
+
 from .config import DOT_INTERVAL_MS, LONG_PAUSE_MS, MAX_SINGERS, SPEAKER_PALETTE, load_config
 from .romanize import romanize
 from .subtitle import split_speaker
+
+CJK = re.compile(r"[　-鿿぀-ヿ가-힯豈-﫿]")
+
+# Per-syllable effect presets. Templates are ASS override tags formatted with
+# {start} {mid} {end} {dur} {index} (ms relative to the event start) plus params.
+# Each syllable template resets its own state first so effects do not leak forward.
+EFFECT_PRESETS = {
+    "none": {"line": "", "syllable": "", "params": {}},
+    "fade": {"line": "\\fad({fade_in},{fade_out})", "syllable": "", "params": {"fade_in": 200, "fade_out": 200}},
+    "pop": {"line": "", "syllable": "\\fscx100\\fscy100\\t({start},{mid},\\fscx{scale}\\fscy{scale})\\t({mid},{end},\\fscx100\\fscy100)", "params": {"scale": 125}},
+    "glow": {"line": "", "syllable": "\\blur0\\t({start},{mid},\\blur{blur})\\t({mid},{end},\\blur0)", "params": {"blur": 6}},
+}
+
+
+def effect_templates(config: dict) -> tuple[str, str, dict]:
+    values = config.get("effects", {})
+    name = str(values.get("preset", "none")).lower()
+    if name not in EFFECT_PRESETS:
+        raise ValueError(f"effects.preset must be one of {', '.join(EFFECT_PRESETS)}")
+    preset = EFFECT_PRESETS[name]
+    params = {**preset["params"], **values.get("params", {})}
+    return str(values.get("line", preset["line"])), str(values.get("syllable", preset["syllable"])), params
+
+
+def apply_template(template: str, params: dict, **timing: int) -> str:
+    if not template:
+        return ""
+    try:
+        return template.format(**params, **timing)
+    except (KeyError, IndexError) as exc:
+        raise ValueError(f"Unknown effect template field: {exc}") from exc
+
+
+def karaoke_text(words, event_start: int, tag: str, syllable_template: str, params: dict) -> str:
+    parts, cursor, previous = [], event_start, ""
+    for index, (left, right, word) in enumerate(words):
+        gap = left - cursor
+        separator = "" if not previous or (CJK.search(previous[-1]) and CJK.search(word[:1])) else " "
+        if gap >= 10:
+            parts.append(f"{{\\k{round(gap / 10)}}}")
+        duration = max(1, round((right - left) / 10))
+        rel_start, rel_end = max(0, left - event_start), max(0, right - event_start)
+        effect = apply_template(syllable_template, params, start=rel_start, mid=(rel_start + rel_end) // 2, end=rel_end, dur=rel_end - rel_start, index=index)
+        parts.append(f"{separator}{{\\{tag}{duration}{effect}}}{esc(word)}")
+        cursor, previous = max(cursor, left) + duration * 10, word
+    return "".join(parts)
 
 
 def at(value: int) -> str:
@@ -97,25 +145,52 @@ def ass(row: dict[str, str], entries) -> str:
     karaoke_tag = str(karaoke_style.get("tag", "kf")).lower()
     if karaoke_tag not in {"k", "kf"}:
         raise ValueError("karaoke.tag must be 'k' or 'kf'")
+    line_template, syllable_template, effect_params = effect_templates(config)
+    layout = config.get("layout", {})
+    alternate = str(layout.get("mode", "single")).lower() == "alternate"
+    if str(layout.get("mode", "single")).lower() not in {"single", "alternate"}:
+        raise ValueError("layout.mode must be 'single' or 'alternate'")
+    lead_in_ms = max(0, int(layout.get("lead_in_ms", 1500))) if alternate else 0
+    lyric_margin_v = int(lyric_style.get("margin_v", 150))
+    romanization_gap = int(romanization_style.get("margin_v", 225)) - lyric_margin_v
+    rows_layout = (
+        (int(layout.get("top_alignment", 1)), int(layout.get("top_margin_v", lyric_margin_v + 130))),
+        (int(layout.get("bottom_alignment", 3)), int(layout.get("bottom_margin_v", lyric_margin_v))),
+    )
+    row_free = [0, 0]
     previous_end = 0
-    for start, end, text, words in entries:
+    for index, (start, end, text, words) in enumerate(entries):
         start += intro_padding
         end += intro_padding
+        words = [(left + intro_padding, right + intro_padding, word) for left, right, word in words]
         speaker, lyric_text = split_speaker(text)
         if start - previous_end >= long_pause_ms:
             for count in range(1, 4):
                 dot_start = start - (4 - count) * dot_interval_ms
                 out.append(f"Dialogue: 2,{at(dot_start)},{at(dot_start + dot_interval_ms)},Prompt,,0,0,220,,{'.' * count}")
+        slot = index % 2 if alternate else 0
+        # Alternate mode shows a line early, but never before its row is free.
+        shown = min(start, max(row_free[slot], start - lead_in_ms)) if alternate else start
+        row_free[slot] = end
         if words:
-            visible = " ".join(f"{{\\{karaoke_tag}{max(1, round((right - left) / 10))}}}{esc(word)}" for left, right, word in words)
+            visible = karaoke_text(words, shown, karaoke_tag, syllable_template, effect_params)
         else:
             visible = esc(lyric_text)
         if speaker:
             semantic = {"duet": "&H00FFFFFF", "both": "&H00FFFFFF", "shared": "&H00FFFFFF", "backing": "&H0000FF00"}
             visible = f"{{\\c{semantic.get(speaker.casefold(), slots[speaker.casefold()])}}}{visible}"
+        line_effect = apply_template(line_template, effect_params, start=0, mid=(end - shown) // 2, end=end - shown, dur=end - shown, index=index)
+        if alternate:
+            align_tag, margin_v = rows_layout[slot]
+            prefix = f"{{\\an{align_tag}{line_effect}}}"
+        else:
+            align_tag, margin_v = 0, lyric_margin_v
+            prefix = f"{{{line_effect}}}" if line_effect else ""
         romanized = romanize(lyric_text, row.get("language", ""), romanization_style)
         if romanized:
-            out.append(f"Dialogue: 1,{at(start)},{at(end)},Romanization,,0,0,0,,{esc(romanized)}")
-        out.append(f"Dialogue: 0,{at(start)},{at(end)},Lyric,,0,0,150,,{visible}")
+            roman_prefix = f"{{\\an{align_tag}}}" if alternate else ""
+            roman_margin = margin_v + romanization_gap if alternate else 0
+            out.append(f"Dialogue: 1,{at(shown)},{at(end)},Romanization,,0,0,{roman_margin},,{roman_prefix}{esc(romanized)}")
+        out.append(f"Dialogue: 0,{at(shown)},{at(end)},Lyric,,0,0,{margin_v},,{prefix}{visible}")
         previous_end = max(previous_end, end)
     return "\n".join(out) + "\n"

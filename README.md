@@ -80,6 +80,18 @@ Enhanced LRC supports word or syllable marks:
 
 Songs without word-level timing are skipped rather than rendered with false karaoke highlighting.
 
+### Word-timed karaoke formats
+
+`lyrics_file` also accepts KTV and music-player lyric formats that already carry word timing:
+
+| Extension | Format | Example line |
+|---|---|---|
+| `.ksc` | KTV karaoke script | `karaoke.add('00:12.000', '00:13.000', '你好[Hi]', '300,400,300');` |
+| `.krc` | Word-offset lyrics | `[12000,1000]<0,300,0>你<300,400,0>好` |
+| `.qrc` | Word-timestamp lyrics, plain or in XML `LyricContent` | `[12000,1000]你(12000,300)好(12300,400)` |
+
+Only plain-text files are read; binary or encrypted downloads are rejected with a message. UTF-8, UTF-16, and GB18030 encodings are detected. When every line of a lyric file has word timing (these formats, or a fully marked enhanced LRC), PolyKara uses it directly and skips WhisperX alignment.
+
 ### Romanized sing-along text
 
 For non-Latin lyrics, PolyKara can add a romanized line above the original lyric. Install the optional engines with:
@@ -151,6 +163,76 @@ Unmarked lyrics are blue by default. Up to 16 singers can be labeled:
 
 Singer colors are assigned consistently by first appearance while preserving word-level highlighting.
 
+### KTV two-line layout and effects
+
+Set `layout.mode = "alternate"` for the classic KTV look: lines alternate between a top-left and a bottom-right row, and each line appears `lead_in_ms` before it is sung (never before its row is free).
+
+`[effects]` adds per-syllable animation on top of the `\kf` highlight. Built-in presets are `fade`, `pop`, and `glow`; tune them with `[effects.params]`, or write your own ASS tags:
+
+```toml
+[effects]
+preset = "pop"
+[effects.params]
+scale = 130
+```
+
+```toml
+[effects]
+syllable = '\fscx100\fscy100\t({start},{mid},\fscx{scale}\fscy{scale})\t({mid},{end},\fscx100\fscy100)'
+[effects.params]
+scale = 140
+```
+
+`{start}`, `{mid}`, `{end}`, `{dur}`, and `{index}` are milliseconds relative to the line event, and every `params` key is available as a placeholder.
+
+## Live output
+
+Play the karaoke in real time instead of rendering an MP4:
+
+```bash
+sudo modprobe v4l2loopback video_nr=10 card_label=PolyKara exclusive_caps=1
+python3 pipeline.py live --song amazing-grace-vocal
+python3 pipeline.py live --target udp://127.0.0.1:5000
+python3 pipeline.py live --target rtmp://live.example.com/app/STREAM_KEY
+```
+
+A `/dev/videoN` target appears as a webcam in OBS, browsers, and video-call apps (video only; set `live.audio_output = "pulse"` or `"alsa"` to play the audio locally at the same time). Stream URLs carry H.264 video and AAC audio.
+
+## Karaoke Studio (timing editor)
+
+A browser-based word-timing editor, served locally (no extra dependencies):
+
+```bash
+python3 pipeline.py studio            # opens http://127.0.0.1:8765/
+```
+
+Pick a song from `songs.csv`. The studio loads its saved project, the edited/automatic ASS, or `lyrics_file`, in that order. Then:
+
+- **Tap timing** (`T`): play the song and hold `Space`, `F`, or `J` for each unit while it is sung. A unit is one CJK character or one Latin word. Alternate `F`/`J` for legato syllables, and use `Backspace` to step back.
+- **Timeline**: shows the waveform and word blocks. Drag word edges or bodies to adjust them, `Alt`+drag moves a whole line, `Ctrl`+wheel zooms.
+- **Line tools**: import plain text, add/delete/merge/split lines, spread timing evenly, shift everything by an offset, undo/redo.
+- **Preview**: live karaoke overlay on the video, in single or KTV two-line layout, with the effect presets.
+- **Save** (`Ctrl+S`): writes `work/project/<id>.json` and `work/ass/<id>.edited.ass`, which `render` and `live` use. **Export** downloads ASS, enhanced LRC, KSC, KRC, or SRT; **Render MP4** runs `render --song <id>`.
+
+## Music player
+
+A local music and karaoke player with KTV features:
+
+```bash
+python3 pipeline.py player            # opens http://127.0.0.1:8765/player
+```
+
+- Scans the folders in `[player] library` (default `~/Music` and `work/output`) for audio and video.
+- Lyrics come from a sidecar file with the same name (`.krc`, `.qrc`, `.ksc`, `.lrc`, `.ass`, `.srt`, `.vtt`), a file you load in the Lyrics tab, or LRCLIB.
+  - Two LRC lines with the same timestamp are shown as original plus translation.
+  - Romanization appears when the optional engines are installed.
+  - Lyric files you load or fetch are stored in `work/player-lyrics/`; your music folders are never written to.
+- **Views**: scrolling lyrics with word-by-word highlight and a per-track offset; a KTV two-line overlay on the video; and a desktop lyric pop-up window.
+- **Sound**: 10-band equalizer with presets, bass boost, key shift (±12 semitones, tempo unchanged), tempo (pitch unchanged), reverb (room, hall, stadium, KTV echo), and a karaoke mode that removes centre-panned vocals.
+- **Library**: playlists, play queue, list/loop/one/shuffle modes, search, and media keys.
+
+Both pages listen on `127.0.0.1` only. Use `--port` to change the port and `--no-browser` to skip opening a browser.
+
 ## GUI editing and maintenance
 
 Create editable copies in Aegisub or Subtitle Edit:
@@ -185,6 +267,12 @@ polykara/charts.py      regional YouTube chart picker
 polykara/alignment.py   WhisperX/Faster-Whisper alignment
 polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
 polykara/ass.py         ASS styles, karaoke tags, and pause cues
+polykara/lyricformats.py KSC/KRC/QRC word-timed lyric readers
+polykara/project.py     studio projects, ASS read-back, LRC/KSC/KRC/SRT export
+polykara/library.py     player library scan and lyric lookup
+polykara/server.py      local web server for the studio and player
+polykara/web/           studio, player, and desktop-lyric pages
+tests/                  python3 -m unittest discover -s tests -t .  and  node --test tests/js/test_web.js
 ```
 
 Respect the terms of service and copyright requirements of every media and lyrics source.
