@@ -152,7 +152,8 @@ def ass(row: dict[str, str], entries) -> str:
         raise ValueError("layout.mode must be 'single' or 'alternate'")
     lead_in_ms = max(0, int(layout.get("lead_in_ms", 1500))) if alternate else 0
     lyric_margin_v = int(lyric_style.get("margin_v", 150))
-    romanization_gap = int(romanization_style.get("margin_v", 225)) - lyric_margin_v
+    roman_margin = romanization_style.get("margin_v", 225)
+    romanization_gap = int(roman_margin) - lyric_margin_v if str(roman_margin).lower() != "auto" else 75
     rows_layout = (
         (int(layout.get("top_alignment", 1)), int(layout.get("top_margin_v", lyric_margin_v + 130))),
         (int(layout.get("bottom_alignment", 3)), int(layout.get("bottom_margin_v", lyric_margin_v))),
