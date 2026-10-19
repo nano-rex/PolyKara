@@ -85,6 +85,10 @@ def intro_padding_ms(entries) -> int:
 
 def ass(row: dict[str, str], entries) -> str:
     config = load_config()
+    if str(config.get("layout", {}).get("mode", "single")).lower() == "pairs":
+        from .ktv import document
+
+        return document(row, entries, config, at, esc, karaoke_text, SPEAKER_PALETTE)
     video, title_style = config["video"], config["title"]
     credit_style, lyric_style = config["credit"], dict(config["lyric"])
     karaoke_style = config.get("karaoke", {})
