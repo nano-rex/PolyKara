@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolyKara Studio</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="studio">
+<header class="bar">
+  <strong class="brand">PolyKara Studio</strong>
+  <select id="song" title="Song from songs.csv"></select>
+  <span id="source" class="muted"></span>
+  <span class="grow"></span>
+  <button id="save" title="Ctrl+S">Save</button>
+  <select id="export" title="Download in another format">
+    <option value="">Export…</option>
+    <option value="ass">ASS (karaoke)</option>
+    <option value="lrc">Enhanced LRC</option>
+    <option value="ksc">KSC</option>
+    <option value="krc">KRC (plain text)</option>
+    <option value="srt">SRT</option>
+  </select>
+  <button id="render" title="Save, then render MP4 with FFmpeg">Render MP4</button>
+  <a id="player-link" href="/player">Player ↗</a>
+</header>
+
+<main class="studio-grid">
+  <section class="panel lyrics-panel">
+    <div class="toolbar">
+      <button id="import">Import text</button>
+      <button id="add-line" title="Insert line after selection">+ Line</button>
+      <button id="del-line" title="Delete selected line">− Line</button>
+      <button id="merge-line" title="Merge with next line">Merge</button>
+      <button id="split-line" title="Split line at the selected unit">Split</button>
+      <button id="even" title="Spread units evenly across the line">Even</button>
+      <button id="clear" title="Remove word timing from the line">Clear</button>
+    </div>
+    <form id="line-form" class="line-form">
+      <input id="line-text" placeholder="Line text (spaces separate words; CJK characters time individually)" autocomplete="off">
+      <div class="row">
+        <label>Start <input id="line-start" class="time" autocomplete="off"></label>
+        <label>End <input id="line-end" class="time" autocomplete="off"></label>
+        <button type="submit">Apply</button>
+      </div>
+    </form>
+    <ol id="lines" class="lines"></ol>
+  </section>
+
+  <section class="panel preview-panel">
+    <div class="stage" id="stage">
+      <video id="media" playsinline preload="auto"></video>
+      <canvas id="preview"></canvas>
+    </div>
+    <div class="toolbar">
+      <label>Layout <select id="pv-mode"><option value="single">single</option><option value="alternate">KTV two-line</option></select></label>
+      <label>Effect <select id="pv-effect"><option>none</option><option>fade</option><option>pop</option><option>glow</option></select></label>
+      <span class="muted">Preview only. Render settings come from polykara.toml.</span>
+    </div>
+  </section>
+</main>
+
+<section class="panel transport">
+  <div class="toolbar">
+    <button id="play" title="Space (P while tapping)">▶</button>
+    <span id="clock" class="clock">00:00.00 / 00:00.00</span>
+    <label>Speed <select id="rate"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option></select></label>
+    <button id="tap" class="toggle" title="T: hold Space, F or J for each unit">Tap timing</button>
+    <span id="tap-status" class="muted"></span>
+    <span class="grow"></span>
+    <button id="undo" title="Ctrl+Z">Undo</button>
+    <button id="redo" title="Ctrl+Y">Redo</button>
+    <label>Shift all <input id="offset" class="num" value="0"> ms</label>
+    <button id="apply-offset">Apply</button>
+    <label>Zoom <input id="zoom" type="range" min="20" max="600" value="120"></label>
+  </div>
+  <canvas id="timeline" height="170"></canvas>
+  <p class="keys muted">Space play/pause · T tap mode (hold Space/F/J per unit, Backspace step back, Esc exit) · ↑↓ line · ←→ seek 2 s (Shift 0.2 s) · R replay line · [ ] nudge line 50 ms · Drag word edges or bodies on the timeline, Alt+drag moves the whole line · Ctrl+wheel zoom</p>
+  <pre id="job" class="job" hidden></pre>
+</section>
+
+<dialog id="import-dialog">
+  <form method="dialog" class="dialog">
+    <h3>Import lyrics text</h3>
+    <p class="muted">One lyric line per line. Existing lines and timing are replaced.</p>
+    <textarea id="import-text" rows="16"></textarea>
+    <div class="row"><span class="grow"></span><button value="cancel">Cancel</button><button value="ok" class="primary">Import</button></div>
+  </form>
+</dialog>
+
+<script src="/static/karaoke.js"></script>
+<script src="/static/studio.js"></script>
+</body>
+</html>

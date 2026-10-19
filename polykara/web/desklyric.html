@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PolyKara Lyrics</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="desk">
+<canvas id="c"></canvas>
+<div class="tools row">
+  <button id="smaller" title="Smaller">A−</button>
+  <button id="bigger" title="Bigger">A+</button>
+  <button id="theme" title="Background">◐</button>
+</div>
+<script src="/static/karaoke.js"></script>
+<script>
+"use strict";
+// Desktop lyric window: two-line KTV lyrics driven by the player over a BroadcastChannel.
+const canvas = document.getElementById("c");
+const channel = new BroadcastChannel("polykara-lyrics");
+const sync = { t: 0, sent: Date.now(), rate: 1, playing: false };
+let renderer = null, scale = Number(localStorage.getItem("pk.desk.scale") || 1), dark = localStorage.getItem("pk.desk.dark") !== "0";
+let config = {}, lines = [];
+
+function build() {
+  const style = styleFromConfig(config);
+  const w = Math.max(320, window.innerWidth * devicePixelRatio), h = Math.max(100, window.innerHeight * devicePixelRatio);
+  Object.assign(style, { width: w, height: h, mode: "alternate", size: Math.round(h * 0.26 * scale), romanSize: Math.round(h * 0.1 * scale), marginL: 30, marginR: 30, marginV: Math.round(h * 0.1), rowGap: Math.round(h * 0.45) });
+  renderer = new KaraokeRenderer(canvas, style);
+  renderer.setLines(lines);
+}
+function frame() {
+  const now = sync.playing ? sync.t + (Date.now() - sync.sent) * sync.rate : sync.t;
+  if (renderer) renderer.draw(now, { background: dark ? "#000" : "#2b2f38" });
+  requestAnimationFrame(frame);
+}
+channel.onmessage = (event) => {
+  const data = event.data || {};
+  if (data.type === "lines") { lines = data.lines || []; config = data.config || {}; document.title = data.title ? `${data.title} — lyrics` : "PolyKara Lyrics"; build(); }
+  if (data.type === "time") Object.assign(sync, data);
+};
+window.addEventListener("resize", build);
+document.getElementById("bigger").onclick = () => { scale = Math.min(2, scale + 0.1); localStorage.setItem("pk.desk.scale", scale); build(); };
+document.getElementById("smaller").onclick = () => { scale = Math.max(0.5, scale - 0.1); localStorage.setItem("pk.desk.scale", scale); build(); };
+document.getElementById("theme").onclick = () => { dark = !dark; localStorage.setItem("pk.desk.dark", dark ? "1" : "0"); };
+build();
+channel.postMessage({ type: "hello" });
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

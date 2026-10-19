@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolyKara Player</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="player">
+<header class="bar">
+  <strong class="brand">PolyKara Player</strong>
+  <input id="search" type="search" placeholder="Search title, artist, album" style="width: min(360px, 40vw)">
+  <button id="rescan" title="Rescan library folders from polykara.toml [player] library">Rescan</button>
+  <span id="status" class="muted"></span>
+  <span class="grow"></span>
+  <a href="/studio">Studio ↗</a>
+</header>
+
+<div class="player-grid">
+  <nav class="side">
+    <h4>Library</h4>
+    <ul id="libs">
+      <li data-lib="all" class="on">All tracks</li>
+      <li data-lib="lyrics">With lyrics</li>
+      <li data-lib="video">Videos</li>
+      <li data-lib="queue">Play queue</li>
+    </ul>
+    <h4>Playlists <button id="new-pl" title="New playlist" style="float:right;padding:0 6px">+</button></h4>
+    <ul id="playlists"></ul>
+  </nav>
+
+  <section class="content">
+    <div class="tabs">
+      <button data-tab="songs" class="on">Songs</button>
+      <button data-tab="lyrics">Lyrics</button>
+      <button data-tab="ktv">KTV</button>
+    </div>
+    <div class="view" id="tab-songs">
+      <table class="tracks">
+        <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Album</th><th>Time</th><th>Lyric</th><th></th></tr></thead>
+        <tbody id="tracks"></tbody>
+      </table>
+    </div>
+    <div class="view" id="tab-lyrics" hidden>
+      <div class="lyric-tools toolbar">
+        <button id="ly-minus" title="Lyrics 0.5 s earlier">−0.5s</button>
+        <span id="ly-offset" class="muted">offset 0.0s</span>
+        <button id="ly-plus" title="Lyrics 0.5 s later">+0.5s</button>
+        <label>Size <input id="ly-size" type="range" min="14" max="44" value="22"></label>
+        <label><input id="ly-sub" type="checkbox" checked> Translation / romanization</label>
+        <button id="ly-search">Search online</button>
+        <label class="muted" style="cursor:pointer"><input id="ly-file" type="file" accept=".lrc,.krc,.qrc,.ksc,.ass,.srt,.vtt,.txt" hidden><u>Load lyric file…</u></label>
+        <button id="ly-studio" title="Open in the studio to time it">Edit timing</button>
+        <span id="ly-source" class="muted"></span>
+      </div>
+      <div id="lyric-view" class="lyric-view"></div>
+    </div>
+    <div class="view" id="tab-ktv" hidden>
+      <label class="ktv-toggle muted"><input id="ktv-overlay" type="checkbox" checked> Overlay lyrics</label>
+      <div class="ktv" id="ktv"><video id="media" playsinline preload="auto"></video><canvas id="ktv-canvas"></canvas></div>
+      <canvas id="viz"></canvas>
+    </div>
+  </section>
+</div>
+
+<footer class="playbar">
+  <div class="now"><b id="now-title">Nothing playing</b><span id="now-artist" class="muted"></span></div>
+  <div class="controls row">
+    <button id="prev" title="Previous">⏮</button>
+    <button id="play" title="Play/pause (Space)">▶</button>
+    <button id="next" title="Next">⏭</button>
+  </div>
+  <div class="seek"><span id="t-now" class="muted">0:00</span><input id="seek" type="range" min="0" max="1000" value="0"><span id="t-total" class="muted">0:00</span></div>
+  <div class="extras">
+    <button id="mode" title="Play mode">🔁 List</button>
+    <label title="Volume">🔊 <input id="volume" type="range" min="0" max="100" value="80" style="width:80px"></label>
+    <button id="fx-btn">Sound</button>
+    <button id="desk" title="Desktop lyrics window">Desktop lyric</button>
+  </div>
+</footer>
+
+<div id="fx" class="pop" hidden>
+  <div class="row"><b>Equalizer</b><select id="eq-preset"></select><span class="grow"></span><button id="fx-close">✕</button></div>
+  <div class="eq" id="eq"></div>
+  <div class="fx">
+    <span>Key</span><span class="row"><button id="key-down">♭</button><b id="key">0</b><button id="key-up">♯</button><span class="muted">semitones</span></span>
+    <span>Tempo</span><span class="row"><input id="tempo" type="range" min="50" max="150" value="100"><b id="tempo-v">1.00×</b></span>
+    <span>Reverb</span><span class="row"><select id="reverb"><option value="off">Off</option><option value="room">Room</option><option value="hall">Concert hall</option><option value="stadium">Stadium</option><option value="ktv">KTV echo</option></select><input id="wet" type="range" min="0" max="100" value="30" title="Wet mix"></span>
+    <span>Vocals</span><label><input id="vocal-cut" type="checkbox"> Karaoke mode (remove centre vocals)</label>
+    <span>Bass boost</span><input id="bass" type="range" min="0" max="12" value="0">
+  </div>
+</div>
+
+<script src="/static/karaoke.js"></script>
+<script src="/static/player.js"></script>
+</body>
+</html>
