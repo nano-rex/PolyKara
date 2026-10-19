@@ -271,14 +271,6 @@ margin_v = 40
 # Remove a region code to disable it from default --trending selection.
 enabled_regions = ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]
 
-[layout]
-# single: one line at a time (default). alternate: KTV style, lines alternate between
-# a top row and a bottom row and appear lead_in_ms early so singers can read ahead.
-mode = "single"
-lead_in_ms = 1500
-top_alignment = 1
-bottom_alignment = 3
-
 [effects]
 # Per-syllable karaoke effects: none, fade, pop, glow.
 # Override a preset with your own ASS tags; {start} {mid} {end} {dur} {index} are
