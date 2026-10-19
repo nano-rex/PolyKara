@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
-from pathlib import Path
+import sys
 from urllib.request import Request, urlopen
 
-from .config import MANIFEST, enabled_regions
+from .config import MANIFEST
 
 REGIONS = {
     "my": ("Malaysia", "ms", "en.*"),
@@ -79,8 +80,11 @@ def slug(value: str) -> str:
 
 
 def add_selected(regions: list[str], pick: bool = False) -> None:
-    if pick and not sys_stdin_tty():
+    if pick and not sys.stdin.isatty():
         raise SystemExit("Trending selection requires an interactive terminal; rerun with a terminal attached")
+    unknown = [region for region in regions if region not in REGIONS]
+    if unknown:
+        raise SystemExit(f"Unknown region code(s): {', '.join(unknown)}; choose from {', '.join(REGIONS)}")
     candidates = []
     for region in regions:
         print(f"\n== {REGIONS[region][0]} ==")
@@ -134,13 +138,11 @@ def add_selected(regions: list[str], pick: bool = False) -> None:
         added += 1
         print(f"ADD {sid}: {item['title']} — {item['artist']}")
     if added:
-        with MANIFEST.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        # Write beside the manifest and swap it in, so a crash cannot truncate songs.csv.
+        temporary = MANIFEST.with_name(MANIFEST.name + ".tmp")
+        with temporary.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
-            writer.writerows(existing)
+            writer.writerows({key: value for key, value in row.items() if key is not None} for row in existing)
+        os.replace(temporary, MANIFEST)
         print(f"Added {added} song(s) to songs.csv. Run `python3 pipeline.py download` to fetch them.")
-
-
-def sys_stdin_tty() -> bool:
-    import sys
-    return sys.stdin.isatty()

@@ -1,0 +1,143 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # Publishing a release on v* tags needs write access to the repository contents.
+    permissions:
+      contents: write
+      actions: read
+    timeout-minutes: 120
+    env:
+      # Code signing by SignPath Foundation turns on once the SIGNPATH_API_TOKEN secret and the
+      # SIGNPATH_ORGANIZATION_ID variable exist (see CODE_SIGNING.md). Until then builds are unsigned.
+      SIGNING: ${{ secrets.SIGNPATH_API_TOKEN != '' && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        run: |
+          python -m pip install pypinyin pillow
+          python -m unittest discover -s tests -t .
+
+      - name: Build program folder
+        shell: pwsh
+        run: ./packaging/build-windows.ps1 -Stage program
+
+      - name: Self-test the built program
+        shell: pwsh
+        run: |
+          $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
+          & .\dist\PolyKara\polykara-cli.exe selftest
+          if ($LASTEXITCODE -ne 0) { throw "selftest failed" }
+          & .\dist\PolyKara\polykara-cli.exe check
+          if ($LASTEXITCODE -ne 0) { throw "check failed" }
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          Copy-Item "$env:POLYKARA_HOME\work\output\selftest.png" screenshots\selftest.png
+
+      - name: Screenshot the window
+        shell: pwsh
+        run: |
+          $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
+          $app = Start-Process .\dist\PolyKara\PolyKara.exe -PassThru
+          Start-Sleep -Seconds 15
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $image = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($image)
+          $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $image.Save("screenshots\window.png")
+          if ($app.HasExited) { throw "PolyKara.exe exited with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id
+          Start-Sleep -Seconds 2
+
+      # Signing, part 1: PolyKara.exe and polykara-cli.exe inside the program folder.
+      - name: Upload program for signing
+        if: env.SIGNING == 'true'
+        id: unsigned-program
+        uses: actions/upload-artifact@v4
+        with:
+          name: program-unsigned
+          path: dist/PolyKara/
+
+      - name: Sign program
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'PolyKara' }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: program
+          github-artifact-id: ${{ steps.unsigned-program.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-program
+
+      - name: Use the signed program
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item signed-program\* dist\PolyKara -Recurse -Force
+          Get-AuthenticodeSignature dist\PolyKara\PolyKara.exe, dist\PolyKara\polykara-cli.exe | Format-Table Status, StatusMessage, Path -AutoSize
+
+      - name: Build installer
+        shell: pwsh
+        run: ./packaging/build-windows.ps1 -Stage installer
+
+      # Signing, part 2: the installer itself.
+      - name: Upload installer for signing
+        if: env.SIGNING == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-unsigned
+          path: dist/PolyKara-Setup-*.exe
+
+      - name: Sign installer
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'PolyKara' }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-installer
+
+      - name: Use the signed installer
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item signed-installer\PolyKara-Setup-*.exe dist -Force
+          Get-AuthenticodeSignature dist\PolyKara-Setup-*.exe | Format-Table Status, StatusMessage, Path -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PolyKara-Setup
+          path: dist/PolyKara-Setup-*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PolyKara-Setup-*.exe

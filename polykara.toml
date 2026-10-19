@@ -5,7 +5,96 @@ play_res_x = 1920
 play_res_y = 1080
 extend_intro = true
 
+[render]
+# FFmpeg encoder settings. Leave preset or crf empty ("") for encoders that do not use them,
+# and pass their own options through extra_args, e.g. video_codec = "h264_nvenc", extra_args = ["-cq", "20"].
+video_codec = "libx264"
+preset = "medium"
+crf = 18
+pixel_format = "yuv420p"
+audio_codec = "aac"
+audio_bitrate = "192k"
+extra_args = []
+# Output frame: the video is brought to [video] play_res_x x play_res_y. A video of another
+# shape (4:3, vertical, ...) is filled out with a blurred copy of itself ("blur"), black
+# bars ("pad"), or left as it is ("none").
+fit = "blur"
+blur_sigma = 30
+# Background for songs made from audio files without cover art (an ffmpeg colour name or 0xRRGGBB).
+background_color = "black"
+
+[logo]
+# Image burned into every video; a logo_file value in songs.csv overrides it per song.
+# Sizes and margins use the same 1920x1080 coordinate space as the subtitles.
+file = ""
+width = 160
+position = "bottom-right"
+margin_x = 60
+margin_y = 230
+opacity = 0.6
+
+[layout]
+# "pairs": two staggered rows like KTV videos. The upper row is aligned left, the lower
+# row right; both lines of a pair appear lead_ms before the first is sung and leave
+# hold_ms after the second. "alternate": a row gets its next line as soon as its line
+# has been sung. "single": one centred line at a time, with the [title]/[credit] cards
+# (the earlier PolyKara layout).
+mode = "pairs"
+margin_l = 105
+margin_r = 105
+# Distance from the bottom of the frame to the bottom of each row.
+top_margin_v = 230
+bottom_margin_v = 78
+lead_ms = 2000
+hold_ms = 800
+fade_ms = 250
+# A gap this long between lines starts a new pair in the upper row.
+page_break_ms = 6000
+
+[card]
+# Opening card for the pairs/alternate layouts: the title centred near the top and the
+# credits (singer, composer, lyricist, subtitles) as a left-aligned block below it.
+# Labels follow the song language (English, Chinese, Malay/Indonesian); override with
+# e.g. labels = { en = ["Singer", "Composer", "Lyricist", "Subtitling"] }.
+enabled = true
+font = "Calibri"
+start_ms = 0
+duration_ms = 5000
+fade_in_ms = 300
+fade_out_ms = 500
+title_y = 170
+title_size = 130
+title_bold = true
+title_color = "&H00FFFFFF"
+# "voice" uses the singer colour as a soft glow around the title.
+title_outline_color = "voice"
+title_outline = 3
+title_shadow = 2
+title_blur = 4
+credit_y = 280
+credit_size = 54
+credit_bold = true
+credit_color = "&H00FFFFFF"
+credit_outline_color = "&H00000000"
+credit_outline = 2
+credit_shadow = 2
+credit_line_spacing = 1.3
+# Longer lists of names continue on the next row, under the first name.
+credit_max_width = 1100
+
+[countdown]
+# Dots above the first line and after each long pause ([timing] long_pause_ms); one
+# disappears every dot_interval_ms until the line is sung.
+enabled = true
+dots = 4
+char = "●"
+font = "Arial"
+size = 56
+outline = 2
+gap = 6
+
 [title]
+# [title] and [credit] are used by the "single" layout only.
 enabled = true
 text = "{title}  |  {artist}"
 font = "Arial"
@@ -46,47 +135,82 @@ outline = 2
 shadow = 1
 
 [lyric]
-font = "Arial"
-size = 58
-color = "&H00FF0000"
+# Calibri is replaced by the metric-compatible Carlito on Linux. Chinese, Japanese and
+# Korean characters use the system's CJK font automatically.
+font = "Calibri"
+size = 120
+# Size for lines in Chinese, Japanese or Korean script.
+cjk_size = 145
+color = "&H000000FC"
 secondary_color = "&H00FFFFFF"
-outline_color = "&H80000000"
-back_color = "&H50000000"
+outline_color = "&H00000000"
+back_color = "&H80000000"
+bold = false
+outline = 3
+shadow = 1
 alignment = 2
 margin_l = 80
 margin_r = 80
 margin_v = 150
 
 [karaoke]
-# \kf performs a smooth left-to-right fill over each timed word.
-active_color = "&H00FF0000"
+# \kf performs a smooth left-to-right fill over each timed word. Unsung text is
+# inactive_color with the [lyric] outline; sung text turns to the singer colour with
+# sung_outline_color (added when rendering; needs Pillow, see requirements-romanization.txt).
+active_color = "&H000000FC"
 inactive_color = "&H00FFFFFF"
+sung_outline_color = "&H00FFFFFF"
 tag = "kf"
 
 [romanization]
-# Optional engines are installed with: pip install -r requirements-romanization.txt
+# Lyrics in a non-Latin script get two rows: the romanized reading on top and the
+# original characters below it. Engines: pip install -r requirements-romanization.txt
+# (Korean needs none). "auto" romanizes every line written in a non-Latin script;
+# a list such as ["zh", "ja"] limits it to those song languages.
 enabled = true
-languages = ["zh", "yue", "ja", "ko", "hi", "ta", "bn", "gu", "kn", "ml", "mr", "ne", "pa", "sa", "te", "or"]
+languages = "auto"
+# "ruby" puts each reading directly above the characters it belongs to (pinyin above
+# each hanzi, romaji above each Japanese word, ...). "rows" shows the romanized line as
+# one centred row above the original line, which is easier to edit in Aegisub.
+layout = "ruby"
+# Extra space between characters in the ruby layout, as a fraction of the lyric size.
+ruby_spacing = 0.04
+# Height of the reading above the bottom of its characters, as a fraction of the font size.
+ruby_rise = 0.78
+# Highlight the romanized text together with the original characters.
+karaoke = true
 font = "Arial"
-size = 30
+size = 44
 color = "&H00FFFFFF"
-outline_color = "&H80000000"
-back_color = "&H50000000"
+outline_color = "&H00000000"
+back_color = "&H80000000"
 horizontal = "center"
 vertical = "bottom"
 margin_l = 80
 margin_r = 80
-margin_v = 225
+# "auto" places the row just above the lyric line (gap pixels apart) using the
+# [lyric] font size and margins. A number sets the position yourself.
+margin_v = "auto"
+gap = 8
 bold = false
 italic = false
 outline = 2
 shadow = 1
-# Mandarin: numbers (ni3 hao3) or marks (nǐ hǎo).
-tone = "numbers"
+# Mandarin pinyin: none (ni hao), marks (nǐ hǎo) or numbers (ni3 hao3).
+tone = "none"
 
 [lyrics]
 # Provider order. Use an empty list to disable automatic external lookup.
-sources = ["lrclib", "lyrics.ovh", "webpage"]
+sources = ["lrclib", "netease", "lyrics.ovh", "webpage"]
+# Use YouTube automatic captions when no better lyrics exist.
+auto_captions = true
+# Accuracy check: a song's lyrics count as verified when at least min_sources lyric files
+# (the lyrics_file, subtitles, captions, and each provider's file) agree with each other.
+# agreement_threshold is the share of words two files must have in common, in order.
+min_sources = 3
+agreement_threshold = 0.6
+# true skips songs whose lyrics are not verified instead of rendering them with a warning.
+require_verified = false
 
 [alignment]
 # auto reserves reserve_memory_gib for the system and selects a model from the thresholds.
@@ -103,11 +227,25 @@ cpu_threads = 0
 num_workers = 1
 
 [timing]
-long_pause_ms = 30000
+long_pause_ms = 10000
 dot_interval_ms = 1000
+# Show each line this long before it is sung, when the previous line has already ended.
+lead_in_ms = 500
+# A line whose last word ends more than max_tail_ms before the next line leaves the
+# screen tail_hold_ms after that word. Set max_tail_ms = 0 to keep lines until the next one.
+max_tail_ms = 5000
+tail_hold_ms = 1000
 
 [singers]
 max = 16
+# Fill colours by voice: the song's voice column in songs.csv (female/male/duet), or
+# speaker tags in the lyrics such as [singer: 女], [singer: 男] and [singer: 合].
+# Other speaker names get a colour of their own. show_label prefixes tagged lines
+# with the name, e.g. "女：".
+show_label = true
+female_color = "&H000000FC"
+male_color = "&H00882D14"
+both_color = "&H00187E12"
 
 [prompt]
 font = "Arial"

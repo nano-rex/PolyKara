@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import functools
+import importlib.util
 import json
 import shutil
 import subprocess
 from .config import ALIGN, AUDIO, load_config, run, total_memory_bytes
+from .subtitle import word_json
 
 
 def alignment_model(row: dict[str, str]) -> str:
@@ -32,6 +35,11 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
         raise RuntimeError(f"normalized audio is missing: {audio}")
     settings = load_config().get("alignment", {})
     model = alignment_model(row)
+    # Whisper takes bare language codes, and only large-v3 knows Cantonese.
+    tag = language.lower().replace("_", "-")
+    language = "yue" if tag in {"yue", "zh-hk", "zh-yue"} else tag.split("-", 1)[0]
+    if language == "yue" and not model.startswith("large-v3"):
+        language = "zh"
     device = row.get("device", "").strip().lower() or str(settings.get("device", "auto")).lower()
     compute = row.get("compute_type", "").strip() or str(settings.get("compute_type", "int8"))
     if device == "auto":
@@ -46,14 +54,11 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
         return
     if dry_run:
         raise RuntimeError("WhisperX and faster-whisper are not installed")
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise RuntimeError("WhisperX and faster-whisper are not installed; install requirements-align.txt") from exc
+    if importlib.util.find_spec("faster_whisper") is None:
+        raise RuntimeError("WhisperX and faster-whisper are not installed; install requirements-align.txt")
     print(f"{row['id']}: using faster-whisper model {model} (word timestamps)")
     cpu_threads = int(settings.get("cpu_threads", 0) or 0)
-    worker_options = {"cpu_threads": cpu_threads} if cpu_threads > 0 and device == "cpu" else {}
-    transcriber = WhisperModel(model, device=device, compute_type=compute, num_workers=int(settings.get("num_workers", 1) or 1), **worker_options)
+    transcriber = _whisper_model(model, device, compute, int(settings.get("num_workers", 1) or 1), cpu_threads if device == "cpu" else 0)
     segments, _ = transcriber.transcribe(str(audio), language=language, word_timestamps=True, vad_filter=True)
     output = []
     for segment in segments:
@@ -64,13 +69,35 @@ def align_row(row: dict[str, str], dry_run: bool) -> None:
     (ALIGN / f"{row['id']}.json").write_text(json.dumps({"segments": output}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def align(rows: list[dict[str, str]], dry_run: bool) -> None:
+@functools.lru_cache(maxsize=1)
+def _whisper_model(model: str, device: str, compute: str, num_workers: int, cpu_threads: int):
+    """Keep the most recent model loaded so a batch of songs does not reload it per song."""
+    from faster_whisper import WhisperModel
+
+    options = {"cpu_threads": cpu_threads} if cpu_threads > 0 else {}
+    return WhisperModel(model, device=device, compute_type=compute, num_workers=num_workers, **options)
+
+
+def is_aligned(row: dict[str, str]) -> bool:
+    """True when word timing exists and is not older than the normalized audio."""
+    timing, audio = word_json(row), AUDIO / f"{row['id']}.flac"
+    if timing is None:
+        return False
+    return not audio.exists() or timing.stat().st_mtime >= audio.stat().st_mtime
+
+
+def align(rows: list[dict[str, str]], dry_run: bool, force: bool = False) -> list[str]:
+    """Align every row, isolating failures per song. Returns the ids that were skipped."""
     skipped = []
     for row in rows:
+        if not force and is_aligned(row):
+            print(f"{row['id']}: word timing is up to date; skipping alignment")
+            continue
         try:
             align_row(row, dry_run)
-        except (RuntimeError, subprocess.CalledProcessError) as exc:
+        except (RuntimeError, subprocess.CalledProcessError, OSError, ValueError) as exc:
             print(f"SKIP {row['id']}: alignment unavailable ({exc})")
             skipped.append(row["id"])
     if skipped:
         print("Skipped alignment: " + ", ".join(skipped))
+    return skipped
