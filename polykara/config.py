@@ -4,14 +4,27 @@ import copy
 import os
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-MANIFEST = ROOT / "songs.csv"
-CONFIG_FILE = ROOT / "polykara.toml"
-WORK = ROOT / "work"
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+
+
+def _home() -> Path:
+    if os.environ.get("POLYKARA_HOME"):
+        return Path(os.environ["POLYKARA_HOME"]).expanduser()
+    if getattr(sys, "frozen", False):
+        return Path.home() / "Documents" / "PolyKara"
+    return ROOT
+
+
+HOME = _home()
+MANIFEST = HOME / "songs.csv"
+CONFIG_FILE = HOME / "polykara.toml"
+WORK = HOME / "work"
 RAW, AUDIO, SUBTITLES, ALIGN, ASS, OUTPUT, METADATA, EXTERNAL_LYRICS = (WORK / n for n in ("raw", "audio", "subtitles", "align", "ass", "output", "metadata", "lyrics"))
+MEDIA_SUFFIXES = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".flv", ".avi", ".ts", ".mpg", ".mpeg", ".vob", ".wmv", ".mp3", ".m4a", ".flac", ".wav", ".ogg", ".opus", ".aac", ".wma")
 DOWNLOAD_ARCHIVE = WORK / "download-archive.txt"
 TIMECODE = re.compile(r"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]")
 WORDCODE = re.compile(r"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>")

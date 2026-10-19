@@ -33,24 +33,6 @@ margin_x = 60
 margin_y = 230
 opacity = 0.6
 
-[layout]
-# "pairs": two staggered rows like KTV videos. The upper row is aligned left, the lower
-# row right; both lines of a pair appear lead_ms before the first is sung and leave
-# hold_ms after the second. "alternate": a row gets its next line as soon as its line
-# has been sung. "single": one centred line at a time, with the [title]/[credit] cards
-# (the earlier PolyKara layout).
-mode = "pairs"
-margin_l = 105
-margin_r = 105
-# Distance from the bottom of the frame to the bottom of each row.
-top_margin_v = 230
-bottom_margin_v = 78
-lead_ms = 2000
-hold_ms = 800
-fade_ms = 250
-# A gap this long between lines starts a new pair in the upper row.
-page_break_ms = 6000
-
 [card]
 # Opening card for the pairs/alternate layouts: the title centred near the top and the
 # credits (singer, composer, lyricist, subtitles) as a left-aligned block below it.
