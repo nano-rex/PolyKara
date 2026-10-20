@@ -23,6 +23,17 @@ To build the installer yourself on Windows, run `packaging\build-windows.ps1` (P
 
 On Linux and macOS, `python3 polykara-gui.py` opens the same window from a checkout (it needs Python with Tk and the tools listed below).
 
+## Rust CLI
+
+PolyKara is being migrated to the Rust crate in `rust/`. The Rust command surface is the migration target and is safe to run beside the current Python implementation while behavior is verified:
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -- check
+cargo run --manifest-path rust/Cargo.toml -- selftest
+```
+
+The port currently covers project paths/configuration, manifest management, LRC/SRT/VTT/KRC/KSC parsing, lyric verification, ASS generation, project JSON, local normalization orchestration, and the core CLI commands. The Python modules remain in place until the GUI, web server, providers, alignment engines, romanization engines, and Windows packaging have Rust replacements with equivalent tests.
+
 ## Quick start
 
 Edit `songs.csv`, then run the complete pipeline:

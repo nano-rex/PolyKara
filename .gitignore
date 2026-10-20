@@ -13,3 +13,6 @@ songs.csv.tmp
 # Windows build output
 packaging/build/
 dist/
+
+# Rust build output
+target/
