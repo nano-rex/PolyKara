@@ -22,7 +22,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from .app import prepare
 from .editor import TimingEditor
-from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, ROOT
+from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, RAW, ROOT
 from .localmedia import add_files, describe, new_id, relative_to_home
 from .manifest import REQUIRED_COLUMNS, find_source
 
@@ -97,14 +97,39 @@ def write_songs(fields: list[str], songs: list[dict[str, str]]) -> None:
     os.replace(partial, MANIFEST)
 
 
-def song_state(sid: str) -> str:
-    if (OUTPUT / f"{sid}.mp4").exists():
+def folder_names(folder: Path) -> set[str]:
+    try:
+        return {entry.name for entry in os.scandir(folder)}
+    except OSError:
+        return set()
+
+
+def song_state(sid: str, names: tuple[set[str], set[str], set[str]] | None = None) -> str:
+    """What is done for a song. names: the file names in OUTPUT, ASS and RAW, read once for the whole list."""
+    output, ass_names, raw = names or (folder_names(OUTPUT), folder_names(ASS), folder_names(RAW))
+    if f"{sid}.mp4" in output:
         return "video ready"
-    if (ASS / f"{sid}.edited.ass").exists() or (ASS / f"{sid}.ass").exists():
+    if {f"{sid}.edited.ass", f"{sid}.auto.ass", f"{sid}.ass"} & ass_names:
         return "subtitles ready"
-    if find_source(sid):
+    if any(name.startswith(f"{sid}.") and Path(name).stem == sid and Path(name).suffix.lower() in MEDIA_SUFFIXES for name in raw):
         return "downloaded"
     return "waiting"
+
+
+def warm_up() -> None:
+    import importlib
+
+    for name in ("pypinyin", "ToJyutping", "pykakasi"):
+        try:
+            importlib.import_module(name)
+        except Exception:
+            pass
+    try:
+        from .romanize import _kakasi
+
+        _kakasi()
+    except Exception:
+        pass
 
 
 class SongDialog(tk.Toplevel):
@@ -260,6 +285,8 @@ class App(tk.Tk):
         self.log.pack(fill="both", expand=True)
         panes.add(lower, weight=2)
 
+        # The romanization dictionaries take a second or more to load; do it once the window is up.
+        self.after(1500, lambda: threading.Thread(target=warm_up, daemon=True).start())
         self.editor = TimingEditor(self.tabs, self)
         self.tabs.add(self.editor, text="Timing editor")
         self.status = tk.StringVar(value=f"Songs: {MANIFEST}")
@@ -275,9 +302,10 @@ class App(tk.Tk):
     def refresh(self) -> None:
         chosen = set(self.tree.selection())
         self.tree.delete(*self.tree.get_children())
+        names = (folder_names(OUTPUT), folder_names(ASS), folder_names(RAW))
         for song in self.visible_songs():
             sid = song["id"]
-            self.tree.insert("", "end", iid=sid, text=sid, values=(song.get("title", ""), song.get("artist", ""), song.get("language", ""), song.get("voice", ""), self.working.get(sid) or song_state(sid)))
+            self.tree.insert("", "end", iid=sid, text=sid, values=(song.get("title", ""), song.get("artist", ""), song.get("language", ""), song.get("voice", ""), self.working.get(sid) or song_state(sid, names)))
         self.tree.selection_set([sid for sid in chosen if self.tree.exists(sid)])
 
     def show_state(self, sid: str) -> None:

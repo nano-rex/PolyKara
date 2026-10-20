@@ -84,6 +84,17 @@ def line_readings(text_tokens: tuple[str, ...], language: str, stamp: tuple) -> 
     return tuple(shown) if len(shown) == len(text_tokens) else tuple([None] * len(text_tokens))
 
 
+_FONTS: dict[tuple, tkfont.Font] = {}
+
+
+@functools.lru_cache(maxsize=8192)
+def text_width(font: tuple, text: str) -> int:
+    """Width of text in pixels. Tk takes milliseconds per measurement, so every result is kept."""
+    if font not in _FONTS:
+        _FONTS[font] = tkfont.Font(font=font)
+    return _FONTS[font].measure(text)
+
+
 def library_stamp(language: str) -> tuple:
     return tuple(readings._stamp(path) for path in (readings.BUILTIN / f"{language}.txt", readings.user_file(language)))
 
@@ -691,10 +702,30 @@ class TimingEditor(ttk.Frame):
                 current = waiting if waiting is not None and waiting > current else current + 1
         return [li for li in (current, current + 1) if li < len(self.lines)]
 
-    def draw_stage(self) -> None:
+    def stage_signature(self, ms: int, width: int, height: int) -> tuple:
+        """Everything the preview shows; it is only redrawn when this changes."""
+        shown = self.stage_lines(ms) if self.lines else []
+        state = []
+        for li in shown:
+            for token in self.lines[li].tokens:
+                if token.start is None or ms < token.start:
+                    state.append(0)
+                elif token.end is not None and ms >= token.end:
+                    state.append(1)
+                else:  # being sung: the bar under it grows in tenths
+                    state.append(2 + min(9, (ms - token.start) * 10 // max(1, (token.end or ms + 1) - token.start)))
+        language = self.language()
+        return (width, height, tuple(shown), tuple(state), tuple(tuple(t.text for t in self.lines[li].tokens) for li in shown), library_stamp(language) if language else (), (self.row or {}).get("id"))
+
+    def draw_stage(self, force: bool = True) -> None:
         canvas = self.stage
-        canvas.delete("all")
         width, height = max(200, canvas.winfo_width()), max(120, canvas.winfo_height())
+        signature = self.stage_signature(self.position(), width, height)
+        if not force and signature == getattr(self, "stage_drawn", None):
+            canvas.itemconfigure("clock", text=clock(self.position()))
+            return
+        self.stage_drawn = signature
+        canvas.delete("all")
         if not self.lines:
             canvas.create_text(width / 2, height / 2, text="Choose a song", fill="#778", font=(UI_FONT, 14))
             return
@@ -720,12 +751,11 @@ class TimingEditor(ttk.Frame):
             for _attempt in range(3):
                 font = (UI_FONT, max(8, int(size * scale)), "bold")
                 ruby_font = (UI_FONT, max(7, int(size * scale * 0.42)))
-                measure, ruby_measure = tkfont.Font(font=font), tkfont.Font(font=ruby_font)
                 # Each group is as wide as its characters or its reading, whichever is wider.
                 layout, total = [], 0.0
                 for first, count, reading in groups:
-                    widths = [measure.measure(text) for text in tokens[first:first + count]]
-                    need = ruby_measure.measure(reading) + ruby_measure.measure(" ") if reading else 0
+                    widths = [text_width(font, text) for text in tokens[first:first + count]]
+                    need = text_width(ruby_font, reading) + text_width(ruby_font, " ") if reading else 0
                     pad = max(0.0, need - sum(widths)) / count
                     layout.append((first, count, reading, total, [w + pad for w in widths], pad))
                     total += sum(widths) + pad * count
@@ -751,7 +781,7 @@ class TimingEditor(ttk.Frame):
                         share = min(1.0, (ms - token.start) / max(1, end_ms - token.start))
                         canvas.create_rectangle(x, y + font[1] * 0.85, x + advance * share, y + font[1] * 0.85 + 4, fill=colour, outline="")
                     x += advance
-        canvas.create_text(10, height - 10, anchor="sw", text=clock(ms), fill="#667", font=("Consolas", 10))
+        canvas.create_text(10, height - 10, anchor="sw", text=clock(ms), fill="#667", font=("Consolas", 10), tags=("clock",))
 
     # Timeline
     def x_of(self, ms: int) -> float:
@@ -801,13 +831,16 @@ class TimingEditor(ttk.Frame):
             canvas.create_line(x, 0, x, RULER - 4, fill="#556")
             canvas.create_text(x + 3, 1, text=clock(tick)[:5] if step >= 1000 else clock(tick)[:-1], anchor="nw", fill="#889", font=("Consolas", 8))
         if self.peaks:
+            # One polygon (upper outline, then the lower one back) instead of a line per pixel.
             middle, half = (WAVE_TOP + WAVE_BOTTOM) / 2, (WAVE_BOTTOM - WAVE_TOP) / 2
-            for px in range(int(left), int(right), 2):
+            upper = []
+            for px in range(int(left), int(right) + 2, 2):
                 low, high = self.ms_of(px) // 10, max(self.ms_of(px) // 10 + 1, self.ms_of(px + 2) // 10)
                 chunk = self.peaks[low:high]
-                if chunk:
-                    level = max(chunk) / self.peak_max * half
-                    canvas.create_line(px, middle - level, px, middle + level, fill="#3d6f8f")
+                upper.append((px, (max(chunk) if chunk else 0) / self.peak_max * half))
+            if len(upper) > 1:
+                points = [value for px, level in upper for value in (px, middle - level)] + [value for px, level in reversed(upper) for value in (px, middle + level)]
+                canvas.create_polygon(points, fill="#3d6f8f", outline="#3d6f8f")
         # Lines with no word timed yet are drawn first and dashed: their times come from the lyric file.
         order = sorted(range(len(self.lines)), key=lambda li: any(token.start is not None for token in self.lines[li].tokens))
         for li in order:
@@ -829,6 +862,17 @@ class TimingEditor(ttk.Frame):
                     canvas.create_text((x1 + x2) / 2, (WORD_TOP + WORD_BOTTOM) / 2, text=token.text.strip(), fill="#ffffff", font=(UI_FONT, 9), tags=("word", f"w{li}_{ti}"))
         x = self.x_of(self.position())
         canvas.create_line(x, 0, x, LINE_BOTTOM + 6, fill="#ff5252", width=2, tags=("playhead",))
+
+    def grow_held(self, ms: int) -> None:
+        """Stretch the word being held to the play position without redrawing the timeline."""
+        li, ti = self.holding
+        token = self.token(self.holding)
+        items = self.timeline.find_withtag(f"w{li}_{ti}")
+        if token is None or token.start is None or not items:
+            self.draw_timeline()
+            return
+        x1 = self.x_of(token.start)
+        self.timeline.coords(items[0], x1, WORD_TOP, max(x1 + 2, self.x_of(ms)), WORD_BOTTOM)
 
     def word_at(self, x: float, y: float) -> tuple[int, int] | None:
         if not WORD_TOP <= y <= WORD_BOTTOM:
@@ -955,9 +999,9 @@ class TimingEditor(ttk.Frame):
             self.timeline.coords("playhead", self.x_of(ms), 0, self.x_of(ms), LINE_BOTTOM + 6)
             self.follow(ms)
             if self.holding is not None:
-                self.draw_timeline()
+                self.grow_held(ms)
             self.mark_now(ms)
-            self.draw_stage()
+            self.draw_stage(force=False)
         elif self.drag is None:
             self.time_label.configure(text=f"{clock(self.playhead)} / {clock(self.duration)}")
         self.was_playing = playing
