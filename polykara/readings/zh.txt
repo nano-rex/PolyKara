@@ -1,0 +1,54 @@
+# Mandarin readings PolyKara uses instead of pypinyin's guess.
+# One word per line: the characters, then one pinyin syllable per character.
+# Tone marks (chóng) or numbers (chong2) both work; 5 or no number is the neutral tone.
+# Add your own in Documents\PolyKara\readings\zh.txt (or <PolyKara folder>/readings/zh.txt);
+# a word there replaces the same word here.
+重来 chóng lái
+重回 chóng huí
+重新 chóng xīn
+重逢 chóng féng
+重复 chóng fù
+重温 chóng wēn
+重演 chóng yǎn
+重叠 chóng dié
+重生 chóng shēng
+睡不着 shuì bù zháo
+睡着 shuì zháo
+想不着 xiǎng bù zháo
+找不着 zhǎo bù zháo
+着急 zháo jí
+着迷 zháo mí
+着火 zháo huǒ
+着凉 zháo liáng
+我得走 wǒ děi zǒu
+得走了 děi zǒu le
+大夫 dài fu
+落下 luò xià
+落叶 luò yè
+落泪 luò lèi
+失落 shī luò
+角落 jiǎo luò
+数一数 shǔ yī shǔ
+数星星 shǔ xīng xing
+数不清 shǔ bù qīng
+数着 shǔ zhe
+数不完 shǔ bù wán
+长相思 cháng xiāng sī
+长长的 cháng cháng de
+一行行 yī háng háng
+少不了 shǎo bù liǎo
+忘不了 wàng bù liǎo
+受不了 shòu bù liǎo
+流血 liú xuè
+热血 rè xuè
+鲜血 xiān xuè
+一曲 yī qǔ
+歌曲 gē qǔ
+背起 bēi qǐ
+背负 bēi fù
+千载 qiān zǎi
+转动 zhuàn dòng
+旋转 xuán zhuǎn
+朝着 cháo zhe
+相处 xiāng chǔ
+暖和 nuǎn huo

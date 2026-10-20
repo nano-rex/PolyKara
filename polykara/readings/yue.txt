@@ -1,0 +1,5 @@
+# Cantonese readings (Jyutping) PolyKara uses instead of ToJyutping's guess.
+# One word per line: the characters, then one Jyutping syllable per character, e.g.
+#   銀行 ngan4 hong4
+# Add your own in Documents\PolyKara\readings\yue.txt (or <PolyKara folder>/readings/yue.txt);
+# a word there replaces the same word here.

@@ -10,6 +10,8 @@ import functools
 import re
 import unicodedata
 
+from . import readings
+
 HAN = "㐀-䶿一-鿿豈-﫿"
 KANA = re.compile(r"[぀-ヿㇰ-ㇿ]")
 HANGUL = re.compile(r"[가-힣]")
@@ -61,6 +63,8 @@ def pieces(text: str, language: str, settings: dict) -> tuple[str, list[Piece]] 
         return None
     try:
         raw = _indic(text, engine) if engine in INDIC else ENGINES[engine](text, settings)
+        if engine in readings.LANGUAGES:
+            raw = readings.apply(text, engine, raw, ENGINES[engine], settings)
     except ImportError as exc:
         MISSING[exc.name or str(exc)] = engine
         return None

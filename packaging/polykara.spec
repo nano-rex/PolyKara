@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_all
 
 root = os.path.abspath(os.path.join(SPECPATH, ".."))
 build = os.path.join(SPECPATH, "build")
-datas = [(os.path.join(build, "bin"), "bin"), (os.path.join(build, "defaults"), "defaults")]
+datas = [(os.path.join(build, "bin"), "bin"), (os.path.join(build, "defaults"), "defaults"), (os.path.join(root, "polykara", "readings"), os.path.join("polykara", "readings"))]
 binaries, hiddenimports = [], ["pipeline", "polykara.gui"]
 # Packages with data files or native libraries that plain import analysis misses.
 for package in ("faster_whisper", "ctranslate2", "pypinyin", "pykakasi", "ToJyutping", "zhconv", "indic_transliteration", "anyascii"):

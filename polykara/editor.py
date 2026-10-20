@@ -20,8 +20,11 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from . import timing
-from .config import AUDIO, ASS
+import functools
+
+from . import readings, timing
+from .config import AUDIO, ASS, load_config
+from .romanize import base_language, ruby_groups
 from .localmedia import is_local, local_path, probe
 from .timing import Line, Player, Token
 
@@ -65,6 +68,98 @@ class LyricsDialog(tk.Toplevel):
         self.destroy()
 
 
+@functools.lru_cache(maxsize=512)
+def line_readings(text_tokens: tuple[str, ...], language: str, stamp: tuple) -> tuple[str | None, ...]:
+    """The reading shown above each token (None when it needs none), from the romanization engines and the word library."""
+    settings = dict(load_config()["romanization"])
+    try:
+        groups = ruby_groups([(0, 0, token) for token in text_tokens], language, settings) or []
+    except Exception:
+        groups = []
+    shown: list[str | None] = []
+    for group in groups:
+        shown.append(group["roman"])
+        shown.extend([""] * (len(group["tokens"]) - 1))
+    # Tokens that were only spaces or punctuation have no group.
+    return tuple(shown) if len(shown) == len(text_tokens) else tuple([None] * len(text_tokens))
+
+
+def library_stamp(language: str) -> tuple:
+    return tuple(readings._stamp(path) for path in (readings.BUILTIN / f"{language}.txt", readings.user_file(language)))
+
+
+class ReadingsDialog(tk.Toplevel):
+    """Edit the user's word library, seeing the readings of the song's lines as they are now."""
+
+    def __init__(self, parent: "TimingEditor", language: str):
+        super().__init__(parent)
+        self.editor, self.language = parent, language
+        self.title(f"Word readings — {language}")
+        self.geometry("760x700")
+        self.transient(parent)
+        name = {"zh": "pinyin", "yue": "Jyutping", "ja": "romaji"}[language]
+        ttk.Label(self, padding=8, wraplength=720, text=f"Readings ({name}) shown above the characters of this song. When one is wrong, add the word "
+                  f"with the right reading below; it is used for every song from now on.").pack(fill="x")
+        self.current = ScrolledText(self, height=12, wrap="word", font=(UI_FONT, 12))
+        self.current.pack(fill="both", expand=True, padx=8)
+        add = ttk.Frame(self, padding=(8, 8, 8, 0))
+        add.pack(fill="x")
+        ttk.Label(add, text="Word").pack(side="left")
+        self.word = tk.StringVar()
+        ttk.Entry(add, textvariable=self.word, width=12, font=(UI_FONT, 12)).pack(side="left", padx=4)
+        ttk.Label(add, text="Reading").pack(side="left")
+        self.reading = tk.StringVar()
+        ttk.Entry(add, textvariable=self.reading, width=28).pack(side="left", padx=4)
+        ttk.Button(add, text="Add", command=self.add).pack(side="left")
+        hint = {"zh": "one syllable per character: 重来 = chóng lái (or chong2 lai2)", "yue": "one syllable per character: 銀行 = ngan4 hong4", "ja": "the whole word in kana or romaji: 君 = きみ"}[language]
+        ttk.Label(add, text=hint, foreground="#666").pack(side="left", padx=8)
+        ttk.Label(self, padding=(8, 8, 8, 2), text=f"Your words ({readings.user_file(language)}):").pack(fill="x")
+        self.text = ScrolledText(self, height=12, wrap="none", undo=True, font=(UI_FONT, 11))
+        self.text.pack(fill="both", expand=True, padx=8)
+        path = readings.user_file(language)
+        self.text.insert("1.0", path.read_text(encoding="utf-8-sig") if path.exists() else f"# Your {name} readings: one word per line, the word then its reading.\n")
+        self.problems = ttk.Label(self, padding=(8, 4), foreground="#b71c1c", wraplength=720)
+        self.problems.pack(fill="x")
+        buttons = ttk.Frame(self, padding=8)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
+        ttk.Button(buttons, text="Save", command=self.save).pack(side="right", padx=6)
+        ttk.Label(buttons, text=f"Built-in list: {len(readings.parse((readings.BUILTIN / f'{language}.txt').read_text(encoding='utf-8'), language)[0]) if (readings.BUILTIN / f'{language}.txt').exists() else 0} words", foreground="#666").pack(side="left")
+        self.show()
+
+    def show(self) -> None:
+        self.current.configure(state="normal")
+        self.current.delete("1.0", "end")
+        stamp = library_stamp(self.language)
+        for number, line in enumerate(self.editor.lines, 1):
+            tokens = tuple(token.text for token in line.tokens)
+            shown = line_readings(tokens, self.language, stamp)
+            parts = [f"{token.strip()}({reading})" if reading else token for token, reading in zip(tokens, shown)]
+            self.current.insert("end", f"{number:>3}  " + "".join(parts) + "\n")
+        self.current.configure(state="disabled")
+
+    def add(self) -> None:
+        word, reading = self.word.get().strip(), " ".join(self.reading.get().split())
+        if not word or not reading:
+            return
+        content = self.text.get("1.0", "end-1c").rstrip("\n")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", content + f"\n{word} {reading}\n")
+        self.word.set("")
+        self.reading.set("")
+        self.save()
+
+    def save(self) -> None:
+        content = self.text.get("1.0", "end-1c")
+        problems = readings.parse(content, self.language)[1]
+        self.problems.configure(text="Not used: " + "; ".join(problems) if problems else "")
+        path = readings.user_file(self.language)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content.rstrip("\n") + "\n", encoding="utf-8")
+        self.show()
+        self.editor.draw_stage()
+
+
 class TimingEditor(ttk.Frame):
     def __init__(self, parent: tk.Misc, app):
         super().__init__(parent)
@@ -96,7 +191,7 @@ class TimingEditor(ttk.Frame):
         self.song_box = ttk.Combobox(top, textvariable=self.song, state="readonly", width=40, postcommand=self.list_songs)
         self.song_box.pack(side="left", padx=(4, 4))
         self.song_box.bind("<<ComboboxSelected>>", lambda _: self.open(self.song.get().split("  ", 1)[0]))
-        for text, command in (("Save", self.save), ("Save and make subtitles", self.save_and_build), ("Preview on video", self.preview), ("Lyrics text…", self.edit_text)):
+        for text, command in (("Save", self.save), ("Save and make subtitles", self.save_and_build), ("Preview on video", self.preview), ("Lyrics text…", self.edit_text), ("Word readings…", self.edit_readings)):
             ttk.Button(top, text=text, command=command).pack(side="left", padx=(0, 4))
         ttk.Button(top, text="Undo", command=self.undo).pack(side="left", padx=(0, 4))
         ttk.Button(top, text="Clear line timing", command=self.clear_line).pack(side="left")
@@ -307,6 +402,19 @@ class TimingEditor(ttk.Frame):
         self.lines = timing.retext(self.lines, dialog.result)
         self.cursor = self.first_untimed()
         self.changed()
+
+    def language(self) -> str:
+        return base_language((self.row or {}).get("language", "") or "")
+
+    def edit_readings(self) -> None:
+        if self.row is None:
+            messagebox.showinfo("PolyKara", "Choose a song first.")
+            return
+        language = self.language()
+        if language not in readings.LANGUAGES:
+            messagebox.showinfo("PolyKara", "The word library is for songs in Mandarin (zh), Cantonese (yue) and Japanese (ja). Set the song's language on the Songs tab.")
+            return
+        ReadingsDialog(self, language)
 
     def clear_line(self) -> None:
         place = self.selected or self.cursor
@@ -597,29 +705,52 @@ class TimingEditor(ttk.Frame):
             colour = VOICE_COLOURS.get(line.speaker or (self.row or {}).get("voice", ""), "#fc0000")
             font = (UI_FONT, size, "bold")
             y = height * (0.35 if row_number == 0 else 0.7)
-            measure = tkfont.Font(font=font)
-            # Shrink a line that is wider than the preview.
-            fit = measure.measure(line.text)
-            if fit > width * 0.94:
-                font = (UI_FONT, max(8, int(size * width * 0.94 / fit)), "bold")
-                measure = tkfont.Font(font=font)
-            pieces, total = [], 0
-            for token in line.tokens:
-                advance = measure.measure(token.text)
-                pieces.append((token, total, advance))
-                total += advance
+            language = self.language()
+            tokens = tuple(token.text for token in line.tokens)
+            shown = line_readings(tokens, language, library_stamp(language)) if language else ()
+            # Groups of tokens under one reading: (first token, token count, reading).
+            groups, index = [], 0
+            while index < len(tokens):
+                count = 1
+                while index + count < len(tokens) and index < len(shown) and shown[index] and shown[index + count] == "":
+                    count += 1
+                groups.append((index, count, shown[index] if index < len(shown) else None))
+                index += count
+            scale = 1.0
+            for _attempt in range(3):
+                font = (UI_FONT, max(8, int(size * scale)), "bold")
+                ruby_font = (UI_FONT, max(7, int(size * scale * 0.42)))
+                measure, ruby_measure = tkfont.Font(font=font), tkfont.Font(font=ruby_font)
+                # Each group is as wide as its characters or its reading, whichever is wider.
+                layout, total = [], 0.0
+                for first, count, reading in groups:
+                    widths = [measure.measure(text) for text in tokens[first:first + count]]
+                    need = ruby_measure.measure(reading) + ruby_measure.measure(" ") if reading else 0
+                    pad = max(0.0, need - sum(widths)) / count
+                    layout.append((first, count, reading, total, [w + pad for w in widths], pad))
+                    total += sum(widths) + pad * count
+                if total <= width * 0.94:
+                    break
+                scale *= width * 0.94 / total  # shrink a line wider than the preview
             # Staggered like the video: the first row leans left, the second right.
             spare = max(0, width - total - 24)
             left = 12 + (spare * 0.8 if row_number else spare * 0.2)
-            for token, offset, advance in pieces:
+            for first, count, reading, offset, advances, pad in layout:
                 x = left + offset
-                sung = token.start is not None and ms >= token.start
-                canvas.create_text(x + 2, y + 2, text=token.text, anchor="w", fill="#000000", font=font)
-                canvas.create_text(x, y, text=token.text, anchor="w", fill=colour if sung else "#ffffff", font=font)
-                if token.start is not None and token.start <= ms and (token.end is None or ms < token.end):
-                    end = token.end if token.end is not None else ms + 1
-                    share = min(1.0, (ms - token.start) / max(1, end - token.start))
-                    canvas.create_rectangle(x, y + size * 0.85, x + advance * share, y + size * 0.85 + 4, fill=colour, outline="")
+                group_sung = line.tokens[first].start is not None and ms >= line.tokens[first].start
+                if reading:
+                    canvas.create_text(x + sum(advances) / 2, y - font[1] * 0.95, text=reading, fill=colour if group_sung else "#e0e0e0", font=ruby_font)
+                for number in range(count):
+                    token, advance = line.tokens[first + number], advances[number]
+                    sung = token.start is not None and ms >= token.start
+                    inner = x + pad / 2
+                    canvas.create_text(inner + 2, y + 2, text=token.text, anchor="w", fill="#000000", font=font)
+                    canvas.create_text(inner, y, text=token.text, anchor="w", fill=colour if sung else "#ffffff", font=font)
+                    if token.start is not None and token.start <= ms and (token.end is None or ms < token.end):
+                        end_ms = token.end if token.end is not None else ms + 1
+                        share = min(1.0, (ms - token.start) / max(1, end_ms - token.start))
+                        canvas.create_rectangle(x, y + font[1] * 0.85, x + advance * share, y + font[1] * 0.85 + 4, fill=colour, outline="")
+                    x += advance
         canvas.create_text(10, height - 10, anchor="sw", text=clock(ms), fill="#667", font=("Consolas", 10))
 
     # Timeline

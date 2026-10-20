@@ -186,6 +186,22 @@ If an engine is missing, the `lyrics` step prints which package to install and t
 
 Each line is laid out from the font widths libass will use, measured with Pillow and fontconfig when they are installed (`pip install pillow`); without them a safe estimate is used and characters are spaced a little wider. A line too long for the screen is scaled down to fit. `romanization.ruby_spacing` sets the space between characters, and `gap` the space between the reading and its characters. `layout = "rows"` shows the reading as one centred line above the original instead, which is easier to edit in Aegisub because the ruby layout writes one event per character. In that mode `margin_v = "auto"` places the row above the lyric line, or set a number yourself. Set `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
+### Word library for readings
+
+The engines guess wrong on some words: pypinyin reads 重来 as zhòng lái and 睡不着 as shuì bù zhe, and pykakasi reads 君 as kun. PolyKara keeps a word library of readings that replace the engines' guesses: words that are often misread come with it (`polykara/readings/zh.txt`, `ja.txt`, `yue.txt`), and your own words go in `<PolyKara folder>/readings/<language>.txt` (`Documents\PolyKara\readings` in the Windows app). A word there replaces the same word in the built-in list. The longest word wins, so 重来 can be chóng lái while 重 alone is left to the engine. A doubled word before 地 (慢慢地, 轻轻地) is read de.
+
+```text
+# Mandarin: one syllable per character, tone marks or numbers
+重来 chóng lái
+银行 yin2 hang2
+# Cantonese (yue.txt): one Jyutping syllable per character
+銀行 ngan4 hong4
+# Japanese (ja.txt): the whole word in kana or romaji
+君 きみ
+```
+
+In the window, **Word readings…** on the timing editor tab shows the reading of every character of the song and adds a word to your list in one step. The editor's preview shows the readings above the characters, and the next **Make subtitles** run uses them.
+
 ## Karaoke presentation
 
 ### KTV layout (default)
@@ -324,6 +340,7 @@ polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
 polykara/verify.py      lyric file collection and accuracy check
 polykara/ass.py         ASS styles, karaoke tags, and pause cues
 polykara/romanize.py    optional romanization engines
+polykara/readings.py    word library that corrects the engines' readings
 polykara/timing.py      hand-made word timing (timing editor files, ffplay clock)
 polykara/editor.py      timing editor tab of the window
 polykara/gui.py         the PolyKara window

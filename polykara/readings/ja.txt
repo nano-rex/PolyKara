@@ -1,0 +1,15 @@
+# Japanese readings PolyKara uses instead of pykakasi's guess.
+# One word per line: the word, then its reading in kana (or romaji) as it is sung.
+# Add your own in Documents\PolyKara\readings\ja.txt (or <PolyKara folder>/readings/ja.txt);
+# a word there replaces the same word here.
+君 きみ
+人 ひと
+温もり ぬくもり
+貴方 あなた
+貴女 あなた
+何処 どこ
+一人 ひとり
+二人 ふたり
+明日 あした
+今日 きょう
+昨日 きのう
