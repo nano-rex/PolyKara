@@ -34,64 +34,12 @@ margin_y = 230
 opacity = 0.6
 
 [layout]
-# "pairs": two staggered rows like KTV videos. The upper row is aligned left, the lower
-# row right; both lines of a pair appear lead_ms before the first is sung and leave
-# hold_ms after the second. "alternate": a row gets its next line as soon as its line
-# has been sung. "single": one centred line at a time, with the [title]/[credit] cards
-# (the earlier PolyKara layout).
-mode = "pairs"
-margin_l = 105
-margin_r = 105
-# Distance from the bottom of the frame to the bottom of each row.
-top_margin_v = 230
-bottom_margin_v = 78
-lead_ms = 2000
-hold_ms = 800
-fade_ms = 250
-# A gap this long between lines starts a new pair in the upper row.
-page_break_ms = 6000
-
-[card]
-# Opening card for the pairs/alternate layouts: the title centred near the top and the
-# credits (singer, composer, lyricist, subtitles) as a left-aligned block below it.
-# Labels follow the song language (English, Chinese, Malay/Indonesian); override with
-# e.g. labels = { en = ["Singer", "Composer", "Lyricist", "Subtitling"] }.
-enabled = true
-font = "Calibri"
-start_ms = 0
-duration_ms = 5000
-fade_in_ms = 300
-fade_out_ms = 500
-title_y = 170
-title_size = 130
-title_bold = true
-title_color = "&H00FFFFFF"
-# "voice" uses the singer colour as a soft glow around the title.
-title_outline_color = "voice"
-title_outline = 3
-title_shadow = 2
-title_blur = 4
-credit_y = 280
-credit_size = 54
-credit_bold = true
-credit_color = "&H00FFFFFF"
-credit_outline_color = "&H00000000"
-credit_outline = 2
-credit_shadow = 2
-credit_line_spacing = 1.3
-# Longer lists of names continue on the next row, under the first name.
-credit_max_width = 1100
-
-[countdown]
-# Dots above the first line and after each long pause ([timing] long_pause_ms); one
-# disappears every dot_interval_ms until the line is sung.
-enabled = true
-dots = 4
-char = "●"
-font = "Arial"
-size = 56
-outline = 2
-gap = 6
+# single: one line at a time (default). alternate: KTV style, lines alternate between
+# a top row and a bottom row and appear lead_in_ms early so singers can read ahead.
+mode = "single"
+lead_in_ms = 1500
+top_alignment = 1
+bottom_alignment = 3
 
 [title]
 # [title] and [credit] are used by the "single" layout only.
@@ -135,52 +83,33 @@ outline = 2
 shadow = 1
 
 [lyric]
-# Calibri is replaced by the metric-compatible Carlito on Linux. Chinese, Japanese and
-# Korean characters use the system's CJK font automatically.
-font = "Calibri"
-size = 120
-# Size for lines in Chinese, Japanese or Korean script.
-cjk_size = 145
-color = "&H000000FC"
+font = "Arial"
+size = 58
+color = "&H00FF0000"
 secondary_color = "&H00FFFFFF"
-outline_color = "&H00000000"
-back_color = "&H80000000"
-bold = false
-outline = 3
-shadow = 1
+outline_color = "&H80000000"
+back_color = "&H50000000"
 alignment = 2
 margin_l = 80
 margin_r = 80
 margin_v = 150
 
 [karaoke]
-# \kf performs a smooth left-to-right fill over each timed word. Unsung text is
-# inactive_color with the [lyric] outline; sung text turns to the singer colour with
-# sung_outline_color (added when rendering; needs Pillow, see requirements-romanization.txt).
-active_color = "&H000000FC"
+# \kf performs a smooth left-to-right fill over each timed word.
+active_color = "&H00FF0000"
 inactive_color = "&H00FFFFFF"
-sung_outline_color = "&H00FFFFFF"
 tag = "kf"
 
 [romanization]
-# Lyrics in a non-Latin script get two rows: the romanized reading on top and the
-# original characters below it. Engines: pip install -r requirements-romanization.txt
-# (Korean needs none). "auto" romanizes every line written in a non-Latin script;
-# a list such as ["zh", "ja"] limits it to those song languages.
+# Lyrics in a non-Latin script get a romanized row above the original line.
+# Engines: pip install -r requirements-romanization.txt (Korean needs none).
+# "auto" romanizes every line written in a non-Latin script; a list such as
+# ["zh", "ja"] limits it to those song languages. Words the engines misread are
+# corrected from the word library (polykara/readings and <PolyKara folder>/readings).
 enabled = true
 languages = "auto"
-# "ruby" puts each reading directly above the characters it belongs to (pinyin above
-# each hanzi, romaji above each Japanese word, ...). "rows" shows the romanized line as
-# one centred row above the original line, which is easier to edit in Aegisub.
-layout = "ruby"
-# Extra space between characters in the ruby layout, as a fraction of the lyric size.
-ruby_spacing = 0.04
-# Height of the reading above the bottom of its characters, as a fraction of the font size.
-ruby_rise = 0.78
-# Highlight the romanized text together with the original characters.
-karaoke = true
 font = "Arial"
-size = 44
+size = 30
 color = "&H00FFFFFF"
 outline_color = "&H00000000"
 back_color = "&H80000000"
@@ -188,15 +117,13 @@ horizontal = "center"
 vertical = "bottom"
 margin_l = 80
 margin_r = 80
-# "auto" places the row just above the lyric line (gap pixels apart) using the
-# [lyric] font size and margins. A number sets the position yourself.
-margin_v = "auto"
-gap = 8
+# Height of the romanized row above the bottom of the frame.
+margin_v = 225
 bold = false
 italic = false
 outline = 2
 shadow = 1
-# Mandarin pinyin: none (ni hao), marks (nǐ hǎo) or numbers (ni3 hao3).
+# Mandarin pinyin: marks (nǐ hǎo), numbers (ni3 hao3) or none (ni hao).
 tone = "none"
 
 [lyrics]
@@ -270,3 +197,26 @@ margin_v = 40
 [charts]
 # Remove a region code to disable it from default --trending selection.
 enabled_regions = ["my", "id", "au", "ca", "sg", "tw", "hk", "jp", "kr", "in", "cn", "us", "gb"]
+
+[effects]
+# Per-syllable karaoke effects: none, fade, pop, glow.
+# Override a preset with your own ASS tags; {start} {mid} {end} {dur} {index} are
+# milliseconds relative to the line, and any key in params is also available.
+preset = "none"
+# syllable = '\fscx100\t({start},{mid},\fscx{scale})\t({mid},{end},\fscx100)'
+# line = '\fad({fade_in},{fade_out})'
+[effects.params]
+# scale = 125
+
+[live]
+# python3 pipeline.py live  ->  /dev/videoN needs v4l2loopback (OBS can capture it),
+# or use an rtmp://, udp://, or srt:// URL. audio_output: none, pulse, or alsa.
+target = "/dev/video10"
+audio_output = "none"
+audio_device = "default"
+
+# Music player (`python3 pipeline.py player`): folders scanned for audio and video.
+# Relative paths are inside the PolyKara folder. Lyrics are read from a sidecar file
+# with the same name (.krc .qrc .ksc .lrc .ass .srt .vtt .txt), else looked up on LRCLIB.
+# [player]
+# library = ["~/Music", "work/output"]

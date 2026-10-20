@@ -8,7 +8,7 @@
 
 从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、ffplay、yt-dlp、faster-whisper（CPU 对轴）、各语言罗马音引擎和 Pillow。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
 
-- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、KTV 布局、片头、视频、歌词搜索等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、布局和特效、标题和制作人员、视频、歌词搜索、播放器等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
 - 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
 - **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令与 `pipeline.py` 相同；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
 - 第一次对轴时会下载一次 Whisper 模型（`small` 约 0.5 GB）。
@@ -106,9 +106,9 @@ python3 pipeline.py render --reprocess
 
 Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` 的 `logo_file` 中为单首歌曲设置；编码参数在 `[render]` 中设置。
 
-非拉丁文字的歌词会把读音直接标在对应的字上方：每个汉字上方是拼音，日文每个词上方是罗马字，韩文每个音节上方是罗马字，其他文字同理；读音和原字同步高亮，字距会自动调整，避免较长的拼音与相邻的字重叠。布局根据 libass 实际使用的字体宽度计算（安装 Pillow 和 fontconfig 时精确测量，否则使用安全的估算值，字距会稍宽）；过长的行会自动缩小。`romanization.ruby_spacing` 调整字距；`layout = "rows"` 可改为在原文上方显示一整行读音，在 Aegisub 中更便于编辑。中文普通话使用带声调符号的拼音，如 `nǐ hǎo`（`pypinyin`；设置 `tone = "numbers"` 可改为 `ni3 hao3`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（`ToJyutping`），日文使用平文式罗马字（`pykakasi`），韩文使用内置的韩语罗马字标记法，印度文字使用 `indic-transliteration`，西里尔、希腊、泰文等其他文字使用 `anyascii`。安装方法：`pip install -r requirements-romanization.txt`。缺少某个引擎时，`lyrics` 步骤会提示需要安装的包，该行只显示原文。`pykakasi` 对人名和部分汉字的读音可能有误，可以加入下面的读音词库。
+非拉丁文字的歌词会在原文上方显示一行读音：中文为拼音，日文为罗马字，其他文字同理；`[romanization] margin_v` 设置这一行的高度。中文普通话使用带声调符号的拼音，如 `nǐ hǎo`（`pypinyin`；设置 `tone = "numbers"` 可改为 `ni3 hao3`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（`ToJyutping`），日文使用平文式罗马字（`pykakasi`），韩文使用内置的韩语罗马字标记法，印度文字使用 `indic-transliteration`，西里尔、希腊、泰文等其他文字使用 `anyascii`。安装方法：`pip install -r requirements-romanization.txt`。缺少某个引擎时，`lyrics` 步骤会提示需要安装的包，该行只显示原文。`pykakasi` 对人名和部分汉字的读音可能有误，可以加入下面的读音词库。
 
-**读音词库**：引擎会读错部分词（pypinyin 把“重来”读成 zhòng lái、“睡不着”读成 shuì bù zhe，pykakasi 把“君”读成 kun）。PolyKara 自带常见易错词的词库（`polykara/readings/zh.txt`、`ja.txt`、`yue.txt`），你自己的词放在 `<PolyKara 文件夹>/readings/<语言>.txt`（Windows 程序为 `文档\PolyKara\readings`），同一个词以你的为准；长词优先，所以“重来”可以是 chóng lái 而单独的“重”仍由引擎判断；“慢慢地”这类叠词后的“地”读 de。格式：普通话每个字一个音节（`重来 chóng lái` 或 `重来 chong2 lai2`），粤语每字一个粤拼（`銀行 ngan4 hong4`），日文写整个词的假名或罗马字（`君 きみ`）。在 Timing editor 页按 **Word readings…** 可以查看本曲每个字的读音并一键加入新词；编辑器预览会把读音显示在字的上方，下次 **Make subtitles** 时生效。拼音行的位置会根据 `[lyric]` 的字号和边距自动放在歌词上方（`romanization.margin_v = "auto"`），也可设为具体数值；请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
+**读音词库**：引擎会读错部分词（pypinyin 把“重来”读成 zhòng lái、“睡不着”读成 shuì bù zhe，pykakasi 把“君”读成 kun）。PolyKara 自带常见易错词的词库（`polykara/readings/zh.txt`、`ja.txt`、`yue.txt`），你自己的词放在 `<PolyKara 文件夹>/readings/<语言>.txt`（Windows 程序为 `文档\PolyKara\readings`），同一个词以你的为准；长词优先，所以“重来”可以是 chóng lái 而单独的“重”仍由引擎判断；“慢慢地”这类叠词后的“地”读 de。格式：普通话每个字一个音节（`重来 chóng lái` 或 `重来 chong2 lai2`），粤语每字一个粤拼（`銀行 ngan4 hong4`），日文写整个词的假名或罗马字（`君 きみ`）。在 Timing editor 页按 **Word readings…** 可以查看本曲每个字的读音并一键加入新词；编辑器预览会把读音显示在字的上方，下次 **Make subtitles** 时生效。请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
 
 长于 30 秒的无人声间隔会在最后三秒显示 `.`, `..`, `...`，每秒一个状态，位置在下一句歌词上方并左对齐。未标记歌词默认为蓝色；最多支持 16 位演唱者：
 
@@ -118,18 +118,11 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 [00:24.00][singer:duet]Together line
 ```
 
-## KTV 字幕样式（默认）
+## 布局和特效
 
-默认样式参照常见的 KTV 字幕视频：
+`[layout] mode = "single"`（默认）每次显示一行。`"alternate"` 为 KTV 式上下两行交替：歌词在上行（`top_alignment`）和下行（`bottom_alignment`）之间交替，并提前 `lead_in_ms` 出现，方便提前看词。每个字在演唱时以 `[karaoke] active_color` 填色（`tag = "kf"` 为平滑填色）；标记了 `[singer: 名字]` 的行按歌手使用不同颜色。
 
-- **上下两行交错**：上行靠左，下行靠右。一对歌词在第一句开唱前 `lead_ms`（2 秒）同时出现，第二句唱完后一起淡出。间隔达到 `page_break_ms`（6 秒）时从上行重新开始。`mode = "alternate"` 让每一行唱完后立即换下一句，`mode = "single"` 恢复原来的单行居中样式。
-- **已唱和未唱**：未唱文字为白字黑边；演唱时从左到右平滑变为歌手颜色加白边。中文、日文、韩文上方的拼音/罗马音随文字一起变色。拼音默认不带声调（`tone = "marks"` 显示声调）。
-- **片头**：歌名居中，带歌手颜色的柔光；下方是左对齐的资料：歌手、作曲、作词、字幕制作（`songs.csv` 中的 `artist`、`composer`、`lyricist`、`producer`）。标签随歌曲语言使用英文、中文或马来文，名字较多时换行并对齐在第一个名字下方。
-- **倒数圆点**：第一句及每次停顿超过 `[timing] long_pause_ms`（10 秒）后的第一句上方显示四个圆点，每秒消失一个。第一句开始太早时，视频开头会定格补足倒数所需时间。
-- **歌手颜色**：在 `songs.csv` 的 `voice` 列填写 `female`（红）、`male`（蓝）或 `duet`（绿）。对唱歌曲可在歌词中标记 `[singer: 女]`、`[singer: 男]`、`[singer: 合]`，该句使用对应颜色并以 `女：` 等开头。颜色可在 `[singers]` 修改。
-- **画面**：输出 1920x1080。4:3 等其他比例的视频两侧用模糊放大的画面填充（`[render] fit = "blur"`，`"pad"` 为黑边，`"none"` 保持原样）。
-
-可编辑的 ASS 仍是普通的 `\kf` 卡拉 OK，可以照常在 Aegisub 中调整。已唱文字的白边在渲染时加入（临时文件 `work/ass/<id>.render.ass`），需要安装 Pillow（`pip install pillow`）以测量字体宽度；未安装时已唱文字保留黑边，并会显示提示。
+`[effects] preset` 为每个字加特效：`none`、`fade`、`pop` 或 `glow`；也可以在 `syllable` 和 `line` 中写自己的 ASS 标签，`{start}` `{mid}` `{end}` `{dur}` `{index}` 为相对该行的毫秒数，`[effects.params]` 中的键也可使用。其他比例的视频会用模糊放大的画面填满 1920x1080（`[render] fit = "blur"`，`"pad"` 为黑边，`"none"` 保持原样）。
 
 ## 手动对轴（Timing editor）
 
@@ -139,7 +132,7 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 2. 按 **Enter** 播放。高亮的字（中日韩文为一个字，其他语言为一个词）就是下一个要对的字。唱到它时**按住空格**：按下为开始，松开为结束。**Tap** 模式下每按一次就开始下一个字，同时结束上一个字。唱得太快时可以用 **Speed** 放慢；总是按晚的话可以设置 **Reaction delay**。
 3. **Backspace** 撤销上一个字并回退 2 秒；**↑/↓** 跳到上一行或下一行；**←/→** 前后跳 3 秒；点击歌词中的字可以从那里重新开始。
 4. 时间轴上拖动一个字可以移动它，拖动边缘可以改开始或结束时间；点击空白处移动播放位置，用 Ctrl+滚轮或缩放按钮缩放。**Shift+←/→** 把选中的字前后微调 10 毫秒，**Ctrl+Z** 撤销，**Clear line timing** 清除一行重新对。右侧预览按视频中的颜色显示正在唱的行。
-5. **Save**（Ctrl+S）保存为 `work/lyrics/<id>.timed.lrc`（每个字都带时间的增强 LRC）。之后这个文件就是这首歌的歌词来源，优先于其他所有来源，也不再需要自动对轴。**Save and make subtitles** 同时重新生成 KTV 字幕；**Preview on video** 用 ffplay 从播放位置前一点开始播放带字幕的视频，无需渲染。然后用 **Render videos only** 渲染：字幕在上次渲染后有改动的歌曲会自动重新渲染，不必勾选 **Redo finished work**。
+5. **Save**（Ctrl+S）保存为 `work/lyrics/<id>.timed.lrc`（每个字都带时间的增强 LRC）。之后这个文件就是这首歌的歌词来源，优先于其他所有来源，也不再需要自动对轴。**Save and make subtitles** 同时重新生成字幕；**Preview on video** 用 ffplay 从播放位置前一点开始播放带字幕的视频，无需渲染。然后用 **Render videos only** 渲染：字幕在上次渲染后有改动的歌曲会自动重新渲染，不必勾选 **Redo finished work**。
 
 还没有对的行会保存在前后两行之间的估计位置，编辑器会提示有几行。手动修改过的 `.edited.ass` 会覆盖编辑器的时间轴，所以编辑器会提出把它改名为 `.edited.ass.bak`。
 

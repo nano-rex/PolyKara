@@ -12,16 +12,16 @@ def lyric_lines(text):
 class KaraokeTextTest(unittest.TestCase):
     def test_wait_before_first_word_and_gaps_are_kept(self):
         words = [(10500, 11000, "Amazing "), (11400, 12000, "grace")]
-        self.assertEqual(karaoke_text(words, 10000, "kf"), "{\\k50}{\\kf50}Amazing {\\k40}{\\kf60}grace")
+        self.assertEqual(karaoke_text(words, 10000, "kf", "", {}), "{\\k50}{\\kf50}Amazing {\\k40}{\\kf60}grace")
 
     def test_durations_add_up_to_the_last_word_end(self):
         words = [(1003, 1337, "a "), (1337, 1998, "b "), (2511, 3004, "c")]
-        text = karaoke_text(words, 1000, "k")
+        text = karaoke_text(words, 1000, "k", "", {})
         total = sum(int(value) for value in __import__("re").findall(r"\\k(\d+)", text))
         self.assertEqual(total, (3004 - 1000) // 10)
 
     def test_cjk_words_are_not_separated_by_spaces(self):
-        self.assertEqual(karaoke_text([(0, 500, "你"), (500, 1000, "好")], 0, "kf"), "{\\kf50}你{\\kf50}好")
+        self.assertEqual(karaoke_text([(0, 500, "你"), (500, 1000, "好")], 0, "kf", "", {}), "{\\kf50}你{\\kf50}好")
 
     def test_escape(self):
         self.assertEqual(esc("a{b}\\c"), "a\\{b\\}/c")
@@ -58,6 +58,21 @@ class AssDocumentTest(unittest.TestCase):
         line = lyric_lines(text)[0]
         self.assertGreaterEqual(padding, 0)
         self.assertIn("{\\kf100}Hi", line)
+
+
+class OldSettingsTest(unittest.TestCase):
+    def test_pairs_mode_from_older_settings_still_renders(self):
+        import copy
+        from unittest import mock
+
+        from polykara import ass as module
+        from polykara.config import load_config
+
+        config = copy.deepcopy(load_config())
+        config["layout"]["mode"] = "pairs"
+        with mock.patch.object(module, "load_config", return_value=config):
+            text = module.ass({"id": "x", "title": "T", "artist": "A", "composer": "", "lyricist": "", "producer": "", "language": "en"}, [(1000, 2000, "Hello", [(1000, 2000, "Hello")])])
+        self.assertIn("Hello", text)
 
 
 if __name__ == "__main__":

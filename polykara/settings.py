@@ -23,20 +23,23 @@ from .config import CONFIG_FILE, DEFAULT_CONFIG, HOME, _merge
 TABS = [
     ("Lyrics", ["lyric", "karaoke", "singers"]),
     ("Readings", ["romanization"]),
-    ("KTV layout", ["layout", "countdown", "timing", "prompt"]),
-    ("Title card", ["card", "title", "credit"]),
+    ("Layout", ["layout", "effects", "timing", "prompt"]),
+    ("Title and credits", ["title", "credit"]),
     ("Video", ["video", "render", "logo", "watermark"]),
     ("Lyrics search", ["lyrics", "alignment", "charts"]),
+    ("Player and live", ["player", "live"]),
 ]
 SECTION_NAMES = {
     "lyric": "Lyric text", "karaoke": "Sung colours", "singers": "Singers and voice colours", "romanization": "Pinyin / romaji above the characters",
-    "layout": "Rows on screen", "countdown": "Countdown dots", "timing": "Pauses and timing", "prompt": "Pause prompt",
-    "card": "Opening card (KTV layouts)", "title": "Title (single-line layout)", "credit": "Credits (single-line layout)",
+    "layout": "Lines on screen", "effects": "Karaoke effects", "player": "Music player", "live": "Live output", "countdown": "Countdown dots", "timing": "Pauses and timing", "prompt": "Pause prompt",
+    "card": "Opening card (KTV layouts)", "title": "Title", "credit": "Credits",
     "video": "Frame size", "render": "Video encoding", "logo": "Logo", "watermark": "Watermark text",
     "lyrics": "Lyric sources and accuracy check", "alignment": "Automatic word timing (Whisper)", "charts": "YouTube charts",
 }
 CHOICES = {
-    ("layout", "mode"): ["pairs", "alternate", "single"],
+    ("layout", "mode"): ["single", "alternate"],
+    ("effects", "preset"): ["none", "fade", "pop", "glow"],
+    ("live", "audio_output"): ["none", "pulse", "alsa"],
     ("render", "fit"): ["blur", "pad", "none"],
     ("render", "preset"): ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow", ""],
     ("render", "video_codec"): ["libx264", "libx265", "h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf"],

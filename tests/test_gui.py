@@ -159,7 +159,7 @@ class SettingsWindowTest(unittest.TestCase):
                 self.addCleanup(root.destroy)
                 dialog = settings.SettingsDialog(root)
                 dialog.fields[("lyric", "size")][0].set("99")
-                dialog.fields[("countdown", "enabled")][0].set(False)
+                dialog.fields[("watermark", "enabled")][0].set(True)
                 text = dialog.form_text()
         self.assertIn("size = 99\n", text)
         self.assertEqual(text.count("\n# "), config_comments(), "comments are kept")

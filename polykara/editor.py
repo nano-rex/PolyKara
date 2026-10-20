@@ -30,8 +30,6 @@ from .timing import Line, Player, Token
 
 SPEEDS = {"100%": 1.0, "85%": 0.85, "75%": 0.75, "60%": 0.6, "50%": 0.5}
 MODES = {"Hold (press = start, release = end)": "hold", "Tap (each press starts the next word)": "tap"}
-# Sung colours of the preview, as in the rendered video (female, male, both).
-VOICE_COLOURS = {"female": "#fc0000", "male": "#142d88", "duet": "#127e18", "女": "#fc0000", "男": "#142d88", "合": "#127e18"}
 UI_FONT = "Microsoft YaHei UI" if os.name == "nt" else "Noto Sans CJK SC"
 RULER, WAVE_TOP, WAVE_BOTTOM, WORD_TOP, WORD_BOTTOM, LINE_TOP, LINE_BOTTOM = 18, 22, 112, 116, 146, 150, 166
 EDGE_PX = 5
@@ -194,6 +192,7 @@ class TimingEditor(ttk.Frame):
         self.results: queue.Queue = queue.Queue()
         self.was_playing = False
         self.now_token: tuple[int, int] | None = None
+        self.sung_colour = "#ff0000"
 
         top = ttk.Frame(self, padding=(8, 8, 8, 0))
         top.pack(fill="x")
@@ -326,6 +325,10 @@ class TimingEditor(ttk.Frame):
         self.cursor = self.first_untimed()
         self.selected = None
         self.source_label.configure(text=f"Lyrics: {label}" if label else "No lyrics yet")
+        # The preview fills sung words with the video's sung colour.
+        from .settings import ass_to_hex
+
+        self.sung_colour = ass_to_hex(str(load_config().get("karaoke", {}).get("active_color", ""))) or "#ff0000"
         if self.media is None:
             messagebox.showinfo("PolyKara", f"{sid} has not been downloaded yet. Run Download for it on the Songs tab, then open it here again.")
         else:
@@ -733,7 +736,7 @@ class TimingEditor(ttk.Frame):
         size = max(14, min(34, height // 6))
         for row_number, li in enumerate(self.stage_lines(ms)):
             line = self.lines[li]
-            colour = VOICE_COLOURS.get(line.speaker or (self.row or {}).get("voice", ""), "#fc0000")
+            colour = self.sung_colour
             font = (UI_FONT, size, "bold")
             y = height * (0.35 if row_number == 0 else 0.7)
             language = self.language()

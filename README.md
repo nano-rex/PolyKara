@@ -12,7 +12,7 @@ PolyKara separates repeatable CLI processing from final GUI adjustments. It prod
 
 Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
 
-- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Time lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, KTV layout, title card, video and lyric search, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
+- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Time lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, layout and effects, title and credits, video, lyric search, and the player, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
 - Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
 - **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
 - The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
@@ -165,7 +165,7 @@ The highlight starts when each word is actually sung: the wait before the first 
 
 ### Two-row lyrics for non-Latin scripts
 
-Lyrics written in a non-Latin script get their reading directly above the characters it belongs to: pinyin above each Chinese character, romaji above each Japanese word, romanization above each Korean syllable, and so on. The reading and its characters are highlighted together. Characters are spaced so that a long reading such as `zhuang1` never runs into its neighbour. Lines written only in Latin letters keep a single row.
+Lyrics written in a non-Latin script get a romanized row above the original line: pinyin for Chinese, romaji for Japanese, and so on. Lines written only in Latin letters keep a single row.
 
 | Script | Romanization | Engine |
 | --- | --- | --- |
@@ -182,9 +182,9 @@ The engine is chosen from the script of each line, and the song's `language` dec
 pip install -r requirements-romanization.txt
 ```
 
-If an engine is missing, the `lyrics` step prints which package to install and that line keeps a single row. Japanese readings from `pykakasi` are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); correct them in the edited ASS.
+If an engine is missing, the `lyrics` step prints which package to install and that line keeps a single row. Japanese readings from `pykakasi` are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); add such words to the word library below.
 
-Each line is laid out from the font widths libass will use, measured with Pillow and fontconfig when they are installed (`pip install pillow`); without them a safe estimate is used and characters are spaced a little wider. A line too long for the screen is scaled down to fit. `romanization.ruby_spacing` sets the space between characters, and `gap` the space between the reading and its characters. `layout = "rows"` shows the reading as one centred line above the original instead, which is easier to edit in Aegisub because the ruby layout writes one event per character. In that mode `margin_v = "auto"` places the row above the lyric line, or set a number yourself. Set `karaoke = false` for a non-highlighted row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
+Set `[romanization] margin_v` for the height of the row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
 ### Word library for readings
 
@@ -200,24 +200,17 @@ The engines guess wrong on some words: pypinyin reads 重来 as zhòng lái and 
 君 きみ
 ```
 
-In the window, **Word readings…** on the timing editor tab shows the reading of every character of the song and adds a word to your list in one step. The editor's preview shows the readings above the characters, and the next **Make subtitles** run uses them.
+In the window, **Word readings…** on the timing editor tab shows the reading of every character of the song and adds a word to your list in one step. The editor's preview shows each reading above its characters, and the next **Make subtitles** run uses them in the romanized row.
 
 ## Karaoke presentation
 
-### KTV layout (default)
+### Layouts and effects
 
-The default look follows common KTV karaoke videos:
+`[layout] mode = "single"` (the default) shows one line at a time. `"alternate"` gives KTV-style rows: lines alternate between a top row (`top_alignment`) and a bottom row (`bottom_alignment`) and appear `lead_in_ms` early so singers can read ahead. Each word fills with `[karaoke] active_color` as it is sung (`tag = "kf"` for a smooth fill). Lines tagged `[singer: name]` get a colour per singer.
 
-- **Two staggered rows.** The upper row is aligned left and the lower row right. Both lines of a pair appear `lead_ms` (2 s) before the first is sung and leave together after the second, with a short fade. A gap of `page_break_ms` (6 s) or more starts a new pair in the upper row. `mode = "alternate"` gives each row its next line as soon as its line has been sung, and `mode = "single"` restores the earlier one-line centred layout.
-- **Sung and unsung text.** Unsung text is white with a dark outline. As each word is sung, a smooth left-to-right wipe turns it to the singer colour with a white outline. Readings above Chinese, Japanese, and Korean characters fill along with them.
-- **Opening card.** The title is centred near the top with a soft glow in the singer colour. Below it the credits are a left-aligned block: singer, composer, lyricist, and subtitles (`artist`, `composer`, `lyricist`, `producer` in `songs.csv`). The labels follow the song language (English, Chinese, Malay/Indonesian), and long lists of names continue under the first name.
-- **Countdown.** Four dots above the first line, and above the first line after a pause of `[timing] long_pause_ms` (10 s). One dot disappears every second until the line is sung. When the first line is sung too soon for its countdown, the video gets a frozen opening frame of the needed length (`[video] extend_intro`).
-- **Singer colours.** Set the `voice` column in `songs.csv` to `female` (red), `male` (blue), or `duet` (green). Duets can tag lines with `[singer: 女]`, `[singer: 男]`, and `[singer: 合]` (or `female`, `male`, `both`). Tagged lines take that colour and start with the name, e.g. `女：`. Other singer names get colours of their own. Change the colours in `[singers]`, or hide the name with `show_label = false`.
-- **Frame.** Output is 1920x1080. A video of another shape, such as a 4:3 TV clip, is filled out with a blurred copy of itself (`[render] fit = "blur"`, or `"pad"` for black bars, `"none"` to keep it as it is).
+`[effects] preset` adds a per-word effect: `none`, `fade`, `pop` or `glow`. Override a preset with your own ASS tags in `syllable` and `line`; `{start}`, `{mid}`, `{end}`, `{dur}` and `{index}` are milliseconds relative to the line, and any key in `[effects.params]` is also available.
 
-The edited ASS stays plain `\kf` karaoke, so word timing can be fixed in Aegisub as before. The white outline on sung text is added when rendering, in a temporary `work/ass/<id>.render.ass`: each karaoke event gets a copy in the sung colours whose clip follows the karaoke timing. Placing the clip needs the fonts to be measured, so install Pillow (`pip install pillow`, included in `requirements-romanization.txt`). Without it, sung text keeps the dark outline and `render` prints a note.
-
-Fonts: lyrics use Calibri, which fontconfig replaces with the metric-compatible Carlito on Linux. Chinese, Japanese, and Korean characters fall back to the system CJK font, and lines in those scripts use `[lyric] cjk_size` (145) because CJK fonts draw smaller at the same size. Row heights and side margins are `top_margin_v`, `bottom_margin_v`, `margin_l`, and `margin_r` in `[layout]`. The card is set in `[card]`, the dots in `[countdown]`.
+A video of another shape, such as a 4:3 clip, is fitted to 1920x1080 with a blurred copy of itself behind it (`[render] fit = "blur"`, or `"pad"` for black bars, `"none"` to keep it as it is).
 
 ### Other settings
 
@@ -274,7 +267,7 @@ opacity = 0.9
 
 Encoder settings live in `[render]` (`video_codec`, `preset`, `crf`, `pixel_format`, `audio_codec`, `audio_bitrate`, `extra_args`).
 
-When `extend_intro` is enabled in the `single` layout, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric (the KTV layouts only do this to make room for the countdown). Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
+When `extend_intro` is enabled in the `single` layout, the renderer adds a frozen opening frame and matching silence if the title/credit cards would overlap the first lyric. Lyric timing is shifted by the same amount, so the title card can fade into the actual video without subtitle collision.
 
 Alignment resource policy, pause thresholds, and the singer limit are also configurable in this file. `reserve_memory_gib = 2` reserves a fixed 2 GiB for the system, so an 8 GiB machine receives a 6 GiB model-selection budget. This is a selection policy, not a hard operating-system memory limit.
 
@@ -297,8 +290,8 @@ The **Timing editor** tab of the window times lyrics by hand while the song play
 1. Select a song on the **Songs** tab and press **Time lyrics** (or choose it from the editor's song list). It must have been downloaded. The editor extracts its audio once and draws the waveform.
 2. Press **Enter** to play. The highlighted word (one character for Chinese, Japanese and Korean) is the next one to time. **Hold Space** while it is sung: pressing marks where it starts, letting go marks where it ends. In **Tap** mode, each press starts the next word and ends the one before it. Slow the song down with **Speed** if it is too fast to follow. If you always press late, set **Reaction delay**.
 3. **Backspace** undoes the last word and goes back 2 seconds; **↑/↓** go to the previous or next line; **←/→** jump 3 seconds; click a word in the lyrics to start again from there.
-4. On the timeline, drag a word to move it, or drag its edges to change where it starts or ends. Click empty space to move the play position, and use Ctrl+mouse wheel or the zoom buttons to zoom. **Shift+←/→** nudges the selected word by 10 ms, **Ctrl+Z** undoes, **Clear line timing** starts a line over. The preview on the right shows the lines being sung, coloured as they are in the video.
-5. **Save** (Ctrl+S) writes `work/lyrics/<id>.timed.lrc`, an enhanced LRC with a time for every word. From then on that file is the song's lyric source, ahead of all others, and needs no automatic alignment. **Save and make subtitles** also rebuilds the KTV subtitle. **Preview on video** plays the video with the real subtitles from just before the play position, without rendering, using ffplay. Render with **Render videos only**: a song whose subtitle changed since its last render is rendered again without **Redo finished work**.
+4. On the timeline, drag a word to move it, or drag its edges to change where it starts or ends. Click empty space to move the play position, and use Ctrl+mouse wheel or the zoom buttons to zoom. **Shift+←/→** nudges the selected word by 10 ms, **Ctrl+Z** undoes, **Clear line timing** starts a line over. The preview on the right shows the lines being sung in the video's sung colour, with their readings.
+5. **Save** (Ctrl+S) writes `work/lyrics/<id>.timed.lrc`, an enhanced LRC with a time for every word. From then on that file is the song's lyric source, ahead of all others, and needs no automatic alignment. **Save and make subtitles** also rebuilds the subtitle. **Preview on video** plays the video with the real subtitles from just before the play position, without rendering, using ffplay. Render with **Render videos only**: a song whose subtitle changed since its last render is rendered again without **Redo finished work**.
 
 Lines you have not timed yet are saved at an estimated place between their neighbours, and the editor says how many there are. A hand-edited `.edited.ass` would override the editor's timing, so the editor offers to rename it to `.edited.ass.bak`.
 

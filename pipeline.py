@@ -16,7 +16,6 @@ from typing import Callable
 from polykara.app import prepare
 from polykara.alignment import align_row, is_aligned
 from polykara.ass import ass
-from polykara.ktv import decorate
 from polykara.localmedia import add_files, bring_in, is_local, probe
 from polykara.romanize import MISSING as MISSING_ROMANIZERS
 from polykara.charts import add_selected
@@ -529,21 +528,6 @@ def background_inputs(sid: str, media: Path, dry_run: bool) -> tuple[list[str], 
     return ["-f", "lavfi", "-i", f"color=c={colour}:s={width}x{height}:r=25"], None
 
 
-def burn_subtitle(sid: str, subtitle: Path, ass_text: str, dry_run: bool) -> Path:
-    """The subtitle to burn in: KTV layouts get their sung-colour overlay added in a copy."""
-    # Aegisub may drop the layout comment when saving; the card style marks the layout too.
-    if "; PolyKaraLayout: ktv" not in ass_text and "\nStyle: CardTitle," not in ass_text:
-        return subtitle
-    decorated, done = decorate(ass_text, load_config())
-    if not done:
-        print(f"NOTE {sid}: sung text keeps the dark outline; install Pillow (pip install pillow) for the white sung outline")
-        return subtitle
-    target = subtitle.parent / f"{sid}.render.ass"
-    if not dry_run:
-        target.write_text(decorated, encoding="utf-8")
-    return target
-
-
 def encoder_args() -> list[str]:
     settings = load_config()["render"]
     args = ["-c:v", str(settings.get("video_codec", "libx264"))]
@@ -599,9 +583,8 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
     if logo is not None:
         filters += logo_filters(picture, video, frame_width, sound + 1)
         video = "[branded]"
-    burned = burn_subtitle(sid, subtitle, ass_text, dry_run)
     # ffmpeg runs inside the ASS directory: ids are filter-safe, absolute paths are not.
-    filters.append(f"{video}ass={burned.name}[v]")
+    filters.append(f"{video}ass={subtitle.name}[v]")
     partial = OUTPUT / f"{sid}.partial.mp4"
     cmd = ["ffmpeg", "-hide_banner", "-y"] + inputs + ["-i", str(media)] + (["-i", str(logo)] if logo is not None else [])
     # A still background never ends by itself; stop at the end of the song (plus any intro padding).
@@ -616,8 +599,6 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
             print(f"{sid}: rendered {output}")
     finally:
         partial.unlink(missing_ok=True)
-        if burned != subtitle:
-            burned.unlink(missing_ok=True)
 
 
 def preview(row: dict[str, str], at: float) -> None:
@@ -634,14 +615,9 @@ def preview(row: dict[str, str], at: float) -> None:
     match = re.search(r"^; PolyKaraIntroPaddingMs:\s*(\d+)", ass_text, re.MULTILINE)
     padding = int(match.group(1)) if match else 0
     width, height = int(load_config()["video"]["play_res_x"]), int(load_config()["video"]["play_res_y"])
-    burned = burn_subtitle(sid, subtitle, ass_text, False)
-    filters = f"setpts=PTS+{padding / 1000:g}/TB,scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,ass={burned.name}"
+    filters = f"setpts=PTS+{padding / 1000:g}/TB,scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,ass={subtitle.name}"
     print(f"{sid}: previewing from {timestamp(int(at * 1000))}; close the window or press q to stop")
-    try:
-        subprocess.run(["ffplay", "-hide_banner", "-loglevel", "error", "-autoexit", "-x", "1280", "-y", "720", "-window_title", f"PolyKara preview - {sid}", "-ss", f"{max(0.0, at):.3f}", "-vf", filters, str(media)], cwd=subtitle.parent, check=False)
-    finally:
-        if burned != subtitle:
-            burned.unlink(missing_ok=True)
+    subprocess.run(["ffplay", "-hide_banner", "-loglevel", "error", "-autoexit", "-x", "1280", "-y", "720", "-window_title", f"PolyKara preview - {sid}", "-ss", f"{max(0.0, at):.3f}", "-vf", filters, str(media)], cwd=subtitle.parent, check=False)
 
 
 def render(dry_run: bool, force: bool) -> None:
@@ -738,7 +714,7 @@ def summary() -> int:
 
 
 def selftest() -> int:
-    """Render one KTV frame with the tools PolyKara would use, to check an installation."""
+    """Render one subtitle frame with the tools PolyKara would use, to check an installation."""
     import tempfile
 
     problems = []
@@ -759,18 +735,15 @@ def selftest() -> int:
     entries = [timed(5000, list("唤不醒原来")), timed(7000, ["Hello ", "PolyKara ", "world"])]
     entries[0] = (entries[0][0], entries[0][1], "[singer: 女] " + entries[0][2], entries[0][3])
     text = ass(row, entries)
-    readings = [line.rsplit("}", 1)[1] for line in text.splitlines() if ",Romanization," in line]
+    # The text is the tenth field of a Dialogue line; override tags such as {\\k50} are dropped.
+    readings = [re.sub(r"\{[^}]*\}", "", line.split(",", 9)[9]) for line in text.splitlines() if line.startswith("Dialogue:") and ",Romanization," in line]
     print(f"romanization: {' '.join(readings) or 'MISSING'}")
     if not readings:
         problems.append("no pinyin (pypinyin missing)")
-    decorated, done = decorate(text, load_config())
-    print(f"sung outline overlay: {'ok' if done else 'MISSING (fonts could not be measured)'}")
-    if not done:
-        problems.append("fonts could not be measured")
     target = OUTPUT / "selftest.png"
     OUTPUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as folder:
-        Path(folder, "selftest.ass").write_text(decorated, encoding="utf-8")
+        Path(folder, "selftest.ass").write_text(text, encoding="utf-8")
         try:
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x2a3d55:s=1920x1080:r=5:d=7", "-vf", "ass=selftest.ass", "-ss", "5.9", "-frames:v", "1", str(target)], cwd=folder, check=True, timeout=300)
         except (OSError, subprocess.SubprocessError) as exc:
