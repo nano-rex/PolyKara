@@ -261,7 +261,7 @@ class App(tk.Tk):
         panes.add(lower, weight=2)
 
         # The romanization dictionaries take a second or more to load; do it once the window is up.
-        self.after(1500, lambda: threading.Thread(target=warm_up, daemon=True).start())
+        self.warming = self.after(1500, lambda: threading.Thread(target=warm_up, daemon=True).start())
         self.editor = TimingEditor(self.tabs, self)
         self.tabs.add(self.editor, text="Timing editor")
         self.status = tk.StringVar(value=f"Songs: {MANIFEST}")
@@ -480,6 +480,7 @@ class App(tk.Tk):
 
     def destroy(self) -> None:
         self.after_cancel(self.draining)
+        self.after_cancel(self.warming)
         super().destroy()
 
     def close(self) -> None:

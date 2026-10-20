@@ -1015,5 +1015,7 @@ class TimingEditor(ttk.Frame):
 
     def destroy(self) -> None:
         self.after_cancel(self.ticking)
+        if self.pending_release is not None:
+            self.after_cancel(self.pending_release)
         self.player.stop()
         super().destroy()

@@ -90,6 +90,7 @@ class TimingEditorTest(unittest.TestCase):
         self.editor.key_down()
         self.editor.player.now = end
         self.editor.key_up()
+        self.editor.after_cancel(self.editor.pending_release)
         self.editor.release(end)
 
     def test_holding_space_times_each_character_in_turn(self):
