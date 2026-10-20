@@ -8,7 +8,7 @@
 
 从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、ffplay、yt-dlp、faster-whisper（CPU 对轴）、各语言罗马音引擎和 Pillow。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
 
-- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 编辑 `polykara.toml`，YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、KTV 布局、片头、视频、歌词搜索等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
 - 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
 - **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令与 `pipeline.py` 相同；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
 - 第一次对轴时会下载一次 Whisper 模型（`small` 约 0.5 GB）。

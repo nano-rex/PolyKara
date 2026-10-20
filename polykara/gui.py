@@ -15,14 +15,14 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-import tomllib
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .app import prepare
 from .editor import TimingEditor
-from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, RAW, ROOT
+from .settings import SettingsDialog
+from .config import ASS, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, RAW, ROOT
 from .localmedia import add_files, describe, new_id, relative_to_home
 from .manifest import REQUIRED_COLUMNS, find_source
 
@@ -196,31 +196,6 @@ class SongDialog(tk.Toplevel):
             return
         self.result = song
         self.destroy()
-
-
-class SettingsDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Tk):
-        super().__init__(parent)
-        self.title(f"Settings — {CONFIG_FILE}")
-        self.geometry("820x640")
-        self.text = ScrolledText(self, wrap="none", undo=True, font=("Consolas", 10) if os.name == "nt" else ("Monospace", 10))
-        self.text.pack(fill="both", expand=True)
-        self.text.insert("1.0", CONFIG_FILE.read_text(encoding="utf-8") if CONFIG_FILE.exists() else "")
-        buttons = ttk.Frame(self, padding=8)
-        buttons.pack(fill="x")
-        ttk.Label(buttons, text="Fonts, colours, layout, card and render settings. Changes apply to the next run.").pack(side="left")
-        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
-        ttk.Button(buttons, text="Save", command=self.save).pack(side="right", padx=6)
-
-    def save(self) -> None:
-        content = self.text.get("1.0", "end-1c")
-        try:
-            tomllib.loads(content)
-        except tomllib.TOMLDecodeError as exc:
-            messagebox.showerror("PolyKara", f"The settings are not valid and were not saved:\n{exc}", parent=self)
-            return
-        CONFIG_FILE.write_text(content, encoding="utf-8")
-        messagebox.showinfo("PolyKara", "Settings saved.", parent=self)
 
 
 class App(tk.Tk):

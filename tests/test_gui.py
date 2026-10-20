@@ -144,6 +144,32 @@ class TimingEditorTest(unittest.TestCase):
         self.assertNotEqual(self.app.tree.set("demo", "state"), "downloading…")
 
 
+@unittest.skipUnless(display_available(), "no display")
+class SettingsWindowTest(unittest.TestCase):
+    def test_form_writes_changed_values_into_the_file(self):
+        from polykara import settings
+        from polykara.config import ROOT
+
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "polykara.toml"
+            config.write_text((ROOT / "polykara.toml").read_text(encoding="utf-8"), encoding="utf-8")
+            with mock.patch.object(settings, "CONFIG_FILE", config):
+                root = tkinter.Tk()
+                self.addCleanup(root.destroy)
+                dialog = settings.SettingsDialog(root)
+                dialog.fields[("lyric", "size")][0].set("99")
+                dialog.fields[("countdown", "enabled")][0].set(False)
+                text = dialog.form_text()
+        self.assertIn("size = 99\n", text)
+        self.assertEqual(text.count("\n# "), config_comments(), "comments are kept")
+
+
+def config_comments() -> int:
+    from polykara.config import ROOT
+
+    return (ROOT / "polykara.toml").read_text(encoding="utf-8").count("\n# ")
+
+
 def gui_editor():
     from polykara import editor
 
