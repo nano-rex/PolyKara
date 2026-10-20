@@ -86,5 +86,17 @@ class BringInTest(unittest.TestCase):
                 localmedia.bring_in({"id": "demo", "url": str(Path(folder) / "nope.mp3")}, Path(folder))
 
 
+class DemoSongsTest(unittest.TestCase):
+    def test_old_demo_songs_are_dropped_and_others_kept(self):
+        from polykara import app
+
+        with tempfile.TemporaryDirectory() as folder:
+            manifest = Path(folder) / "songs.csv"
+            manifest.write_text("id,url,title\nexample,,Example\namazing-grace-vocal,https://www.youtube.com/watch?v=24cWZeB4ldE,Amazing Grace\nmine,https://x,Mine\n", encoding="utf-8")
+            with mock.patch.object(app, "HOME", Path(folder)):
+                app.drop_demo_songs()
+            self.assertEqual(manifest.read_text(encoding="utf-8"), "id,url,title\nexample,,Example\nmine,https://x,Mine\n")
+
+
 if __name__ == "__main__":
     unittest.main()

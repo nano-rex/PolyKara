@@ -6,9 +6,9 @@
 
 ## Windows 安装程序
 
-从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、yt-dlp、faster-whisper（CPU 对轴）、各语言罗马音引擎和 Pillow。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
+从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、ffplay、yt-dlp、faster-whisper（CPU 对轴）、各语言罗马音引擎和 Pillow。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
 
-- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。**Edit subtitles** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 编辑 `polykara.toml`，YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 编辑 `polykara.toml`，YouTube 下载失败时用 **Update yt-dlp** 更新。
 - 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
 - **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令与 `pipeline.py` 相同；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
 - 第一次对轴时会下载一次 Whisper 模型（`small` 约 0.5 GB）。
@@ -84,7 +84,7 @@ python3 pipeline.py render --reprocess
 
 ### 歌词准确性检查
 
-每个来源的歌词都单独保存为一个文件，以便互相比对。可信度顺序：`songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt` 或纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → LRCLIB 同步歌词（`work/lyrics/<id>.lrclib.lrc`）→ 网易云音乐同步歌词（`<id>.netease.lrc`）→ 歌曲语言的 YouTube 自动字幕 → LRCLIB、Lyrics.ovh 和各个 `lyric_pages` 网页的纯文本歌词（`<id>.<来源>.txt`）。
+每个来源的歌词都单独保存为一个文件，以便互相比对。可信度顺序：在 Timing editor 中保存的时间轴（`work/lyrics/<id>.timed.lrc`）→ `songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt` 或纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → LRCLIB 同步歌词（`work/lyrics/<id>.lrclib.lrc`）→ 网易云音乐同步歌词（`<id>.netease.lrc`）→ 歌曲语言的 YouTube 自动字幕 → LRCLIB、Lyrics.ovh 和各个 `lyric_pages` 网页的纯文本歌词（`<id>.<来源>.txt`）。
 
 一首歌至少需要 3 个可用的歌词文件才能进行可靠的准确性检查。下载步骤先查询歌词来源，文件仍不足时才请求 YouTube 字幕。如果仍然不足，请在 `songs.csv` 中添加 `lyrics_file` 或 `lyric_pages`（多个网址用 `|` 分隔）。
 
@@ -129,6 +129,18 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 
 可编辑的 ASS 仍是普通的 `\kf` 卡拉 OK，可以照常在 Aegisub 中调整。已唱文字的白边在渲染时加入（临时文件 `work/ass/<id>.render.ass`），需要安装 Pillow（`pip install pillow`）以测量字体宽度；未安装时已唱文字保留黑边，并会显示提示。
 
+## 手动对轴（Timing editor）
+
+窗口中的 **Timing editor** 页可以边播放歌曲边手动对轴，用法类似傻丫头字幕精灵（Sayatoo）。自动对轴不准，或网上找不到歌词时（用 **Lyrics text…** 粘贴歌词）都可以使用。
+
+1. 在 **Songs** 页选中一首已下载的歌曲，按 **Time lyrics**（或在编辑器的歌曲列表中选择）。编辑器会先提取一次音频并画出波形。
+2. 按 **Enter** 播放。高亮的字（中日韩文为一个字，其他语言为一个词）就是下一个要对的字。唱到它时**按住空格**：按下为开始，松开为结束。**Tap** 模式下每按一次就开始下一个字，同时结束上一个字。唱得太快时可以用 **Speed** 放慢；总是按晚的话可以设置 **Reaction delay**。
+3. **Backspace** 撤销上一个字并回退 2 秒；**↑/↓** 跳到上一行或下一行；**←/→** 前后跳 3 秒；点击歌词中的字可以从那里重新开始。
+4. 时间轴上拖动一个字可以移动它，拖动边缘可以改开始或结束时间；点击空白处移动播放位置，用 Ctrl+滚轮或缩放按钮缩放。**Shift+←/→** 把选中的字前后微调 10 毫秒，**Ctrl+Z** 撤销，**Clear line timing** 清除一行重新对。右侧预览按视频中的颜色显示正在唱的行。
+5. **Save**（Ctrl+S）保存为 `work/lyrics/<id>.timed.lrc`（每个字都带时间的增强 LRC）。之后这个文件就是这首歌的歌词来源，优先于其他所有来源，也不再需要自动对轴。**Save and make subtitles** 同时重新生成 KTV 字幕；**Preview on video** 用 ffplay 从播放位置前一点开始播放带字幕的视频，无需渲染。然后用 **Render videos only** 渲染：字幕在上次渲染后有改动的歌曲会自动重新渲染，不必勾选 **Redo finished work**。
+
+还没有对的行会保存在前后两行之间的估计位置，编辑器会提示有几行。手动修改过的 `.edited.ass` 会覆盖编辑器的时间轴，所以编辑器会提出把它改名为 `.edited.ass.bak`。
+
 ## GUI 修改和清理
 
 ```bash
@@ -138,7 +150,7 @@ python3 pipeline.py cleanup --dry-run
 python3 pipeline.py cleanup
 ```
 
-`work/ass/*.edited.ass` 不会被自动流程覆盖；保存修改后运行 `python3 pipeline.py render <id>` 即可重新渲染。`qa` 会显示每首歌的素材、歌词来源、对轴、ASS 和 MP4 状态。
+`work/ass/*.edited.ass` 不会被自动流程覆盖；保存修改后运行 `python3 pipeline.py render <id>` 即可重新渲染；`python3 pipeline.py preview <id> --at 60` 从第 60 秒开始播放带字幕的视频，无需渲染。`qa` 会显示每首歌的素材、歌词来源、对轴、ASS 和 MP4 状态。
 
 运行单元测试（不需要素材、网络或额外依赖）：
 

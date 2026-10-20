@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from .config import load_config
+from .config import EXTERNAL_LYRICS, load_config
 from .manifest import SongError, resolve
 from .providers import provider_files
 from .subtitle import downloaded_subtitle, parse_lrc, parse_timed_subtitle, split_speaker, token_key, tokenise
@@ -96,6 +96,10 @@ def load_file(name: str, label: str, kind: str, path: Path) -> LyricFile | None:
 def candidates(row: dict[str, str]) -> list[tuple[str, str, str, Path]]:
     """Every lyric file of a song as (name, label, kind, path), most trusted first."""
     found: list[tuple[str, str, str, Path]] = []
+    edited = EXTERNAL_LYRICS / f"{row['id']}.timed.lrc"
+    if edited.exists():
+        # Timing made in the timing editor outranks every other source.
+        found.append(("editor", "timing editor", "lrc", edited))
     raw = row.get("lyrics_file", "")
     if raw:
         path = resolve(raw)
@@ -141,8 +145,8 @@ def check_files(files: list[LyricFile], min_sources: int, threshold: float, fixe
 @functools.lru_cache(maxsize=64)
 def _check(found: tuple, stamps: tuple, min_sources: int, threshold: float, fixed_primary: bool) -> LyricCheck:
     files = [item for item in (load_file(*entry) for entry in found) if item is not None]
-    # A manifest file that turned out unusable must not hand its priority to the next file.
-    fixed = fixed_primary and bool(files) and files[0].name == "manifest"
+    # A manifest or editor file that turned out unusable must not hand its priority to the next file.
+    fixed = fixed_primary and bool(files) and files[0].name in {"editor", "manifest"}
     return check_files(files, min_sources, threshold, fixed)
 
 
@@ -151,4 +155,4 @@ def check_lyrics(row: dict[str, str]) -> LyricCheck:
     settings = load_config()["lyrics"]
     found = tuple(candidates(row))
     stamps = tuple(path.stat().st_mtime_ns for _, _, _, path in found)
-    return _check(found, stamps, max(1, int(settings.get("min_sources", 3))), float(settings.get("agreement_threshold", 0.6)), bool(row.get("lyrics_file", "")))
+    return _check(found, stamps, max(1, int(settings.get("min_sources", 3))), float(settings.get("agreement_threshold", 0.6)), bool(row.get("lyrics_file", "")) or bool(found and found[0][0] == "editor"))

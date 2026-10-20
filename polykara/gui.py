@@ -21,6 +21,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .app import prepare
+from .editor import TimingEditor
 from .config import ASS, CONFIG_FILE, HOME, MANIFEST, MEDIA_SUFFIXES, OUTPUT, ROOT
 from .localmedia import add_files, describe, new_id, relative_to_home
 from .manifest import REQUIRED_COLUMNS, find_source
@@ -54,6 +55,9 @@ ACTIONS = [
     ("Self-test", "selftest", False),
 ]
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# ">> step id" lines printed by the pipeline as it starts on each song.
+PROGRESS = re.compile(r"^>> (\S+) ([A-Za-z0-9_-]+)\s*$")
+STEP_NAMES = {"download": "downloading…", "normalize": "preparing audio…", "align": "timing words…", "lyrics": "making subtitles…", "render": "rendering…", "verify": "checking lyrics…", "preview": "previewing…", "edit": "editing…"}
 
 
 def cli_command() -> list[str]:
@@ -203,18 +207,25 @@ class App(tk.Tk):
         self.process: subprocess.Popen | None = None
         self.lines: queue.Queue[str | None] = queue.Queue()
         self.fields, self.songs = read_songs()
+        self.cli_command = cli_command
+        self.working: dict[str, str] = {}
+        self.current: str | None = None
 
-        toolbar = ttk.Frame(self, padding=(8, 8, 8, 0))
+        self.tabs = ttk.Notebook(self)
+        self.tabs.pack(fill="both", expand=True)
+        songs_tab = ttk.Frame(self.tabs)
+        self.tabs.add(songs_tab, text="Songs")
+        toolbar = ttk.Frame(songs_tab, padding=(8, 8, 8, 0))
         toolbar.pack(fill="x")
         for text, command in (("Add song", self.add_song), ("Add files", self.add_media_files), ("Edit", self.edit_song), ("Remove", self.remove_song)):
             ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=(0, 4))
         ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
-        for text, command in (("Edit subtitles", self.edit_subtitles), ("Play video", self.play_video), ("Open videos folder", lambda: self.open_folder(OUTPUT)), ("Open data folder", lambda: self.open_folder(HOME))):
+        for text, command in (("Time lyrics", self.time_lyrics), ("Edit ASS file", self.edit_subtitles), ("Play video", self.play_video), ("Open videos folder", lambda: self.open_folder(OUTPUT)), ("Open data folder", lambda: self.open_folder(HOME))):
             ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=(0, 4))
         ttk.Button(toolbar, text="Settings", command=lambda: SettingsDialog(self)).pack(side="right")
         ttk.Button(toolbar, text="Update yt-dlp", command=self.update_ytdlp).pack(side="right", padx=4)
 
-        panes = ttk.PanedWindow(self, orient="vertical")
+        panes = ttk.PanedWindow(songs_tab, orient="vertical")
         panes.pack(fill="both", expand=True, padx=8, pady=8)
         table = ttk.Frame(panes)
         self.tree = ttk.Treeview(table, columns=("title", "artist", "language", "voice", "state"), show="tree headings", selectmode="extended")
@@ -249,11 +260,13 @@ class App(tk.Tk):
         self.log.pack(fill="both", expand=True)
         panes.add(lower, weight=2)
 
+        self.editor = TimingEditor(self.tabs, self)
+        self.tabs.add(self.editor, text="Timing editor")
         self.status = tk.StringVar(value=f"Songs: {MANIFEST}")
         ttk.Label(self, textvariable=self.status, anchor="w", padding=(8, 0, 8, 6)).pack(fill="x")
         self.refresh()
         self.protocol("WM_DELETE_WINDOW", self.close)
-        self.after(100, self.drain)
+        self.draining = self.after(100, self.drain)
 
     # Song list
     def visible_songs(self) -> list[dict[str, str]]:
@@ -264,8 +277,27 @@ class App(tk.Tk):
         self.tree.delete(*self.tree.get_children())
         for song in self.visible_songs():
             sid = song["id"]
-            self.tree.insert("", "end", iid=sid, text=sid, values=(song.get("title", ""), song.get("artist", ""), song.get("language", ""), song.get("voice", ""), song_state(sid)))
+            self.tree.insert("", "end", iid=sid, text=sid, values=(song.get("title", ""), song.get("artist", ""), song.get("language", ""), song.get("voice", ""), self.working.get(sid) or song_state(sid)))
         self.tree.selection_set([sid for sid in chosen if self.tree.exists(sid)])
+
+    def show_state(self, sid: str) -> None:
+        if self.tree.exists(sid):
+            self.tree.set(sid, "state", self.working.get(sid) or song_state(sid))
+
+    def progress(self, line: str) -> None:
+        """Follow the run in the song list: the song being worked on, and each finished one's new state."""
+        match = PROGRESS.match(line)
+        if not match:
+            return
+        step, sid = match.groups()
+        if self.current and self.current != sid:
+            self.working.pop(self.current, None)
+            self.show_state(self.current)
+        self.current = sid
+        self.working[sid] = STEP_NAMES.get(step, f"{step}…")
+        self.show_state(sid)
+        if self.tree.exists(sid):
+            self.tree.see(sid)
 
     def selected_ids(self) -> list[str]:
         return list(self.tree.selection())
@@ -322,6 +354,9 @@ class App(tk.Tk):
     def run_action(self) -> None:
         label = self.action.get()
         _, command, takes_ids = next(item for item in ACTIONS if item[0] == label)
+        if self.process is not None:
+            messagebox.showinfo("PolyKara", "Wait for the current run to finish, or stop it.")
+            return
         args = [command]
         if takes_ids and self.selected_only.get():
             ids = self.selected_ids()
@@ -329,6 +364,10 @@ class App(tk.Tk):
                 messagebox.showinfo("PolyKara", "Select the songs to work on, or untick 'Selected songs only'.")
                 return
             args += ids
+        if takes_ids:
+            for sid in ids if self.selected_only.get() else [song["id"] for song in self.visible_songs()]:
+                self.working[sid] = "queued"
+            self.refresh()
         if self.reprocess.get() and command in {"download", "render", "process"}:
             args.append("--reprocess")
         if self.realign.get() and command == "process":
@@ -337,6 +376,14 @@ class App(tk.Tk):
 
     def update_ytdlp(self) -> None:
         self.start([shutil.which("yt-dlp") or "yt-dlp", "-U"])
+
+    def time_lyrics(self) -> None:
+        ids = self.selected_ids()
+        if len(ids) != 1:
+            messagebox.showinfo("PolyKara", "Select one song to time its lyrics.")
+            return
+        self.tabs.select(self.editor)
+        self.editor.open(ids[0])
 
     def edit_subtitles(self) -> None:
         ids = self.selected_ids()
@@ -392,12 +439,19 @@ class App(tk.Tk):
                     self.stop_button.configure(state="disabled")
                     self.status.set("Finished" if code == 0 else f"Finished with problems (exit code {code}); see the summary above")
                     self.write(f"[finished, exit code {code}]\n")
+                    self.working.clear()
+                    self.current = None
+                    # A chart download may have added songs.
+                    self.fields, self.songs = read_songs()
                     self.refresh()
                 else:
-                    self.write(line)
+                    if line.startswith(">> "):
+                        self.progress(line)
+                    else:
+                        self.write(line)
         except queue.Empty:
             pass
-        self.after(100, self.drain)
+        self.draining = self.after(100, self.drain)
 
     def write(self, text: str) -> None:
         self.log.configure(state="normal")
@@ -421,7 +475,13 @@ class App(tk.Tk):
                 pass
         self.write("[stopping…]\n")
 
+    def destroy(self) -> None:
+        self.after_cancel(self.draining)
+        super().destroy()
+
     def close(self) -> None:
+        if not self.editor.close():
+            return
         if self.process is not None:
             if not messagebox.askyesno("PolyKara", "A run is still going. Stop it and quit?"):
                 return

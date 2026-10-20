@@ -54,6 +54,8 @@ def each(step: str, song_rows: list[dict[str, str]], action: Callable[[dict[str,
     for row in song_rows:
         if row["id"] in FAILED or row["id"] in SKIPPED:
             continue
+        # The window reads these lines to show which song is being worked on.
+        print(f">> {step} {row['id']}", flush=True)
         try:
             action(row)
         except KeyboardInterrupt:
@@ -571,7 +573,8 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
     if KARAOKE_TAG not in ass_text:
         raise SongError("no word-level timing; no output rendered")
     if output.exists() and not force:
-        if newer(subtitle, output) and subtitle == edited_path(sid):
+        if newer(subtitle, output):
+            # The automatic ASS is only rewritten when its content changes, e.g. after timing edits.
             print(f"{sid}: {subtitle.name} changed after the last render; rendering again")
         else:
             answer = input(f"{sid} is already processed. Process again? [y/N] ").strip().lower() if sys.stdin.isatty() else ""
@@ -613,6 +616,30 @@ def render_song(row: dict[str, str], dry_run: bool, force: bool) -> None:
             print(f"{sid}: rendered {output}")
     finally:
         partial.unlink(missing_ok=True)
+        if burned != subtitle:
+            burned.unlink(missing_ok=True)
+
+
+def preview(row: dict[str, str], at: float) -> None:
+    """Play the song with its subtitles from `at` seconds in ffplay, without rendering a video."""
+    sid = row["id"]
+    lyrics_song(row, False)
+    subtitle = render_subtitle(row)
+    if not subtitle.exists():
+        raise SongError("missing ASS subtitle; run lyrics first")
+    media = source(sid)
+    if not probe(media)["video"]:
+        raise SongError("the preview needs a video; this song comes from an audio file, so render it and use Play video")
+    ass_text = subtitle.read_text(encoding="utf-8")
+    match = re.search(r"^; PolyKaraIntroPaddingMs:\s*(\d+)", ass_text, re.MULTILINE)
+    padding = int(match.group(1)) if match else 0
+    width, height = int(load_config()["video"]["play_res_x"]), int(load_config()["video"]["play_res_y"])
+    burned = burn_subtitle(sid, subtitle, ass_text, False)
+    filters = f"setpts=PTS+{padding / 1000:g}/TB,scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,ass={burned.name}"
+    print(f"{sid}: previewing from {timestamp(int(at * 1000))}; close the window or press q to stop")
+    try:
+        subprocess.run(["ffplay", "-hide_banner", "-loglevel", "error", "-autoexit", "-x", "1280", "-y", "720", "-window_title", f"PolyKara preview - {sid}", "-ss", f"{max(0.0, at):.3f}", "-vf", filters, str(media)], cwd=subtitle.parent, check=False)
+    finally:
         if burned != subtitle:
             burned.unlink(missing_ok=True)
 
@@ -715,7 +742,7 @@ def selftest() -> int:
     import tempfile
 
     problems = []
-    for tool in ("ffmpeg", "ffprobe", "yt-dlp"):
+    for tool in ("ffmpeg", "ffprobe", "ffplay", "yt-dlp"):
         print(f"{tool}: {shutil.which(tool) or 'MISSING'}")
         if shutil.which(tool) is None:
             problems.append(f"{tool} is missing")
@@ -771,13 +798,14 @@ def main() -> int:
             print(f"added {row['id']}: {row['artist'] or '(singer unknown)'} - {row['title']} [{row['language']}] from {row['url']}")
         print(f"{len(added)} song(s) added to songs.csv; check their language, singer and voice before processing")
         return 0
-    parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "render", "process", "cleanup", "qa", "add"))
+    parser.add_argument("command", choices=("check", "download", "verify", "normalize", "align", "lyrics", "edit", "preview", "render", "process", "cleanup", "qa", "add"))
     parser.add_argument("songs", nargs="*", help="optional song ids from songs.csv; default is every song")
     parser.add_argument("--only", default="", help="comma-separated song ids to work on (same as listing them after the command)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reprocess", action="store_true", help="redo the step even when its output already exists (download, normalize, align, render, process)")
     parser.add_argument("--realign", action="store_true", help="with process: also repeat word alignment instead of reusing existing timing")
     parser.add_argument("--drop-source", action="store_true")
+    parser.add_argument("--at", type=float, default=0.0, help="with preview: where to start, in seconds")
     parser.add_argument("--trending", action="store_true", help="show regional YouTube Top Songs and add selected entries to songs.csv")
     parser.add_argument("--pick", action="store_true", help="interactively choose chart songs; trending mode otherwise adds all candidates")
     parser.add_argument("--regions", default="", help="comma-separated chart region codes: my,id,au,ca,sg,tw,hk,jp,kr,in,cn,us,gb")
@@ -790,6 +818,7 @@ def main() -> int:
     elif args.command == "align": align_stage(args.dry_run, args.reprocess)
     elif args.command == "lyrics": lyrics(args.dry_run)
     elif args.command == "edit": each("edit", rows(), edit)
+    elif args.command == "preview": each("preview", rows(), lambda row: preview(row, args.at))
     elif args.command == "render": render(args.dry_run, args.reprocess)
     elif args.command == "process": process(args.dry_run, args.reprocess, args.realign)
     elif args.command == "cleanup": cleanup(args.dry_run, args.drop_source)

@@ -10,9 +10,9 @@ PolyKara separates repeatable CLI processing from final GUI adjustments. It prod
 
 ## Windows app
 
-Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
+Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
 
-- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line, and the status column follows each song. **Edit subtitles** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** edits `polykara.toml`, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
+- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Time lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** edits `polykara.toml`, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
 - Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
 - **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
 - The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
@@ -111,12 +111,13 @@ Every source is saved to its own file so the files can be compared with each oth
 
 | Trust order | Source | File |
 | --- | --- | --- |
-| 1 | `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or plain `.txt`) | the file you name |
-| 2 | Creator-made YouTube subtitles | `work/subtitles/<id>.<lang>.vtt` |
-| 3 | LRCLIB synced lyrics | `work/lyrics/<id>.lrclib.lrc` |
-| 4 | NetEase Cloud Music synced lyrics | `work/lyrics/<id>.netease.lrc` |
-| 5 | YouTube automatic captions in the song's `language` | `work/subtitles/<id>.auto.<lang>.vtt` |
-| 6 | Plain text from LRCLIB, Lyrics.ovh, and each `lyric_pages` URL | `work/lyrics/<id>.<source>.txt` |
+| 1 | Timing saved in the [timing editor](#timing-editor) | `work/lyrics/<id>.timed.lrc` |
+| 2 | `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or plain `.txt`) | the file you name |
+| 3 | Creator-made YouTube subtitles | `work/subtitles/<id>.<lang>.vtt` |
+| 4 | LRCLIB synced lyrics | `work/lyrics/<id>.lrclib.lrc` |
+| 5 | NetEase Cloud Music synced lyrics | `work/lyrics/<id>.netease.lrc` |
+| 6 | YouTube automatic captions in the song's `language` | `work/subtitles/<id>.auto.<lang>.vtt` |
+| 7 | Plain text from LRCLIB, Lyrics.ovh, and each `lyric_pages` URL | `work/lyrics/<id>.<source>.txt` |
 
 A song needs at least three usable lyric files for a proper accuracy check. The download step keeps looking, lyric providers first and YouTube subtitles only if files are still missing, until three exist or every source has been tried. If fewer are available, add a `lyrics_file` or `lyric_pages` (several URLs separated by `|`) in `songs.csv`.
 
@@ -273,6 +274,18 @@ Unmarked lyrics use the song's `voice` colour, or `[karaoke] active_color`. Up t
 
 Singer colors are assigned consistently by first appearance while preserving word-level highlighting.
 
+## Timing editor
+
+The **Timing editor** tab of the window times lyrics by hand while the song plays, in the way Sayatoo does. Use it when the automatic word timing is off, or when no lyrics were found online (paste them with **Lyrics text…**).
+
+1. Select a song on the **Songs** tab and press **Time lyrics** (or choose it from the editor's song list). It must have been downloaded. The editor extracts its audio once and draws the waveform.
+2. Press **Enter** to play. The highlighted word (one character for Chinese, Japanese and Korean) is the next one to time. **Hold Space** while it is sung: pressing marks where it starts, letting go marks where it ends. In **Tap** mode, each press starts the next word and ends the one before it. Slow the song down with **Speed** if it is too fast to follow. If you always press late, set **Reaction delay**.
+3. **Backspace** undoes the last word and goes back 2 seconds; **↑/↓** go to the previous or next line; **←/→** jump 3 seconds; click a word in the lyrics to start again from there.
+4. On the timeline, drag a word to move it, or drag its edges to change where it starts or ends. Click empty space to move the play position, and use Ctrl+mouse wheel or the zoom buttons to zoom. **Shift+←/→** nudges the selected word by 10 ms, **Ctrl+Z** undoes, **Clear line timing** starts a line over. The preview on the right shows the lines being sung, coloured as they are in the video.
+5. **Save** (Ctrl+S) writes `work/lyrics/<id>.timed.lrc`, an enhanced LRC with a time for every word. From then on that file is the song's lyric source, ahead of all others, and needs no automatic alignment. **Save and make subtitles** also rebuilds the KTV subtitle. **Preview on video** plays the video with the real subtitles from just before the play position, without rendering, using ffplay. Render with **Render videos only**: a song whose subtitle changed since its last render is rendered again without **Redo finished work**.
+
+Lines you have not timed yet are saved at an estimated place between their neighbours, and the editor says how many there are. A hand-edited `.edited.ass` would override the editor's timing, so the editor offers to rename it to `.edited.ass.bak`.
+
 ## GUI editing and maintenance
 
 Create editable copies in Aegisub or Subtitle Edit:
@@ -281,7 +294,7 @@ Create editable copies in Aegisub or Subtitle Edit:
 python3 pipeline.py edit
 ```
 
-After saving changes to `work/ass/<id>.edited.ass`, run `python3 pipeline.py render <id>`; a song whose edited ASS is newer than its MP4 is rendered again without `--reprocess`. The edited file is never overwritten.
+After saving changes to `work/ass/<id>.edited.ass`, run `python3 pipeline.py render <id>`; a song whose subtitle (edited or automatic) is newer than its MP4 is rendered again without `--reprocess`. `python3 pipeline.py preview <id> --at 60` plays the video with its subtitles from one minute in, without rendering. The edited file is never overwritten.
 
 Check processing state (media, lyric source, word timing, ASS coverage, and whether the MP4 is stale):
 
@@ -311,6 +324,9 @@ polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
 polykara/verify.py      lyric file collection and accuracy check
 polykara/ass.py         ASS styles, karaoke tags, and pause cues
 polykara/romanize.py    optional romanization engines
+polykara/timing.py      hand-made word timing (timing editor files, ffplay clock)
+polykara/editor.py      timing editor tab of the window
+polykara/gui.py         the PolyKara window
 tests/                  unit tests for parsing, timing, and batch handling
 ```
 

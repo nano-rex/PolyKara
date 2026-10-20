@@ -17,17 +17,16 @@ if ($Stage -ne "installer") {
     python -m pip install -r "$PSScriptRoot\requirements-windows.txt"
     if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
-    # ffmpeg and ffprobe with libass (shared build: the two programs share one set of DLLs).
+    # ffmpeg, ffprobe and ffplay (timing editor playback) with libass; the shared build's programs share one set of DLLs.
     Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile "$build\ffmpeg.zip"
     Expand-Archive "$build\ffmpeg.zip" "$build\ffmpeg"
     $ffmpeg = Get-ChildItem "$build\ffmpeg" -Directory | Select-Object -First 1
-    Get-ChildItem "$($ffmpeg.FullName)\bin" | Where-Object { $_.Name -ne "ffplay.exe" } | Copy-Item -Destination "$build\bin"
+    Get-ChildItem "$($ffmpeg.FullName)\bin" | Copy-Item -Destination "$build\bin"
     Copy-Item "$($ffmpeg.FullName)\LICENSE.txt" "$build\bin\FFMPEG-LICENSE.txt"
     Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$build\bin\yt-dlp.exe"
 
     # First-run defaults copied to Documents\PolyKara.
     Copy-Item "$root\songs.csv", "$root\polykara.toml" "$build\defaults"
-    Copy-Item "$root\lyrics" "$build\defaults\lyrics" -Recurse
 
     python -m PyInstaller --noconfirm --clean --distpath "$root\dist" --workpath "$build\pyinstaller" "$PSScriptRoot\polykara.spec"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
