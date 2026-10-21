@@ -52,6 +52,11 @@ class SaveTest(unittest.TestCase):
         self.assertIn("saved timing", label)
         self.assertEqual(lines[1].tokens[0].start, 4000)
 
+    def test_words_keep_their_spaces_when_read_back(self):
+        lines = timing.lines_from_entries(parse_lrc("[00:05.000]<00:05.000>Hello <00:05.500>PolyKara <00:06.200>world<00:06.800>\n[00:08.000]<00:08.000>[singer: 女] 唤<00:08.300>醒<00:08.600>\n"))
+        self.assertEqual([token.text for token in lines[0].tokens], ["Hello ", "PolyKara ", "world"])
+        self.assertEqual((lines[1].speaker, lines[1].tokens[0].text), ("女", "唤"))
+
 
 class RetextTest(unittest.TestCase):
     def test_unchanged_lines_keep_timing_and_new_lines_are_untimed(self):

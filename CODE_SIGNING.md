@@ -6,7 +6,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io), certific
 
 Windows releases are built from this repository by the GitHub Actions workflow [`.github/workflows/windows.yml`](.github/workflows/windows.yml) on GitHub-hosted runners. The workflow submits the build to SignPath, which signs:
 
-- `PolyKara.exe` and `polykara-cli.exe`, PolyKara's own programs ([`.signpath/artifact-configuration/program.xml`](.signpath/artifact-configuration/program.xml))
+- `PolyKara.exe`, `PolyKara-classic.exe` and `polykara-cli.exe`, PolyKara's own programs ([`.signpath/artifact-configuration/program.xml`](.signpath/artifact-configuration/program.xml))
 - `PolyKara-Setup-<version>.exe`, the installer ([`.signpath/artifact-configuration/installer.xml`](.signpath/artifact-configuration/installer.xml))
 
 Third-party components bundled in the installer (ffmpeg, ffprobe, yt-dlp, the Python runtime and libraries) are included as their publishers distribute them and are not signed with this certificate.

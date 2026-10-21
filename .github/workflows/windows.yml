@@ -7,6 +7,44 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Quick check of the desktop app against the Python sources (no PyInstaller), a few minutes per push.
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tools
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements-romanization.txt
+          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" "$env:RUNNER_TEMP\ffmpeg"
+          $bin = (Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Directory | Select-Object -First 1).FullName + "\bin"
+          Add-Content $env:GITHUB_PATH $bin
+
+      - name: Test and build the desktop app
+        shell: pwsh
+        run: |
+          cargo test --locked --manifest-path desktop/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
+          cargo build --release --locked --manifest-path desktop/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+
+      - name: Drive the desktop app (screenshots, timing a word)
+        shell: pwsh
+        run: ./packaging/ui-test.ps1 -App desktop\target\release\PolyKara.exe -Out desktop-screenshots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshots
+          path: desktop-screenshots/
+
   build:
     runs-on: windows-latest
     # Publishing a release on v* tags needs write access to the repository contents.
@@ -32,6 +70,13 @@ jobs:
           # The window and timing editor tests, listed so a skip (no display) is visible.
           python -m unittest -v tests.test_gui
 
+      - name: Desktop app tests (Rust, no third-party crates)
+        shell: pwsh
+        run: |
+          cargo --version
+          cargo test --locked --manifest-path desktop/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
+
       - name: Build program folder
         shell: pwsh
         run: ./packaging/build-windows.ps1 -Stage program
@@ -47,23 +92,19 @@ jobs:
           New-Item -ItemType Directory -Force screenshots | Out-Null
           Copy-Item "$env:POLYKARA_HOME\work\output\selftest.png" screenshots\selftest.png
 
-      - name: Screenshot the window
+      - name: Engine answers the desktop app
         shell: pwsh
         run: |
           $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
-          $app = Start-Process .\dist\PolyKara\PolyKara.exe -PassThru
-          Start-Sleep -Seconds 15
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $image = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
-          $graphics = [System.Drawing.Graphics]::FromImage($image)
-          $graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
-          $image.Save("screenshots\window.png")
-          if ($app.HasExited) { throw "PolyKara.exe exited with code $($app.ExitCode)" }
-          Stop-Process -Id $app.Id
-          Start-Sleep -Seconds 2
+          $answer = '{"id": 1, "cmd": "hello"}' | & .\dist\PolyKara\polykara-cli.exe engine
+          Write-Host $answer
+          if (-not ($answer -match '"ok": true')) { throw "the engine did not answer" }
 
-      # Signing, part 1: PolyKara.exe and polykara-cli.exe inside the program folder.
+      - name: Drive the desktop app (screenshots, timing a word)
+        shell: pwsh
+        run: ./packaging/ui-test.ps1 -App dist\PolyKara\PolyKara.exe -Out screenshots
+
+      # Signing, part 1: PolyKara.exe, PolyKara-classic.exe and polykara-cli.exe inside the program folder.
       - name: Upload program for signing
         if: env.SIGNING == 'true'
         id: unsigned-program
@@ -91,7 +132,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item signed-program\* dist\PolyKara -Recurse -Force
-          Get-AuthenticodeSignature dist\PolyKara\PolyKara.exe, dist\PolyKara\polykara-cli.exe | Format-Table Status, StatusMessage, Path -AutoSize
+          Get-AuthenticodeSignature dist\PolyKara\PolyKara.exe, dist\PolyKara\PolyKara-classic.exe, dist\PolyKara\polykara-cli.exe | Format-Table Status, StatusMessage, Path -AutoSize
 
       - name: Build installer
         shell: pwsh

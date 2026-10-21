@@ -763,6 +763,11 @@ def main() -> int:
     prepare()
     if sys.argv[1:2] == ["selftest"]:
         return selftest()
+    if sys.argv[1:2] == ["engine"]:
+        # The desktop app's helper: JSON requests on stdin, answers on stdout.
+        from polykara.engine import serve
+
+        return serve()
     parser = argparse.ArgumentParser(description=__doc__)
     if sys.argv[1:2] == ["add"]:
         # pipeline.py add FILE...: add media files on this computer as songs.

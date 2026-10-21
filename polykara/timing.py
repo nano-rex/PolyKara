@@ -82,8 +82,11 @@ def lines_from_entries(entries) -> list[Line]:
         speaker, lyric = split_speaker(text)
         if words:
             tokens = [Token(word, left, right) for left, right, word in words]
-            # Keep a speaker tag that was timed as part of the first word out of the lyric.
-            tokens[0].text = split_speaker(tokens[0].text)[1] or tokens[0].text
+            # Keep a speaker tag that was timed as part of the first word out of the lyric (and only the tag:
+            # the space after an English first word separates it from the next).
+            tag = SPEAKER_TAG.match(tokens[0].text)
+            if tag and tokens[0].text[tag.end():]:
+                tokens[0].text = tokens[0].text[tag.end():]
         else:
             tokens = [Token(piece) for piece in tokenise(lyric)]
         if tokens:

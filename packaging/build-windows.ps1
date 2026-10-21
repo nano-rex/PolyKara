@@ -1,5 +1,5 @@
 # Build dist\PolyKara (the program folder) and dist\PolyKara-Setup-<version>.exe on Windows.
-# Needs Python 3.11+ on PATH; Inno Setup 6 is installed with Chocolatey when it is missing.
+# Needs Python 3.11+ and Rust (cargo) on PATH; Inno Setup 6 is installed with Chocolatey when it is missing.
 #   -Stage program    only the program folder (so its programs can be signed first)
 #   -Stage installer  only the installer, from an existing dist\PolyKara
 #   -Stage all        both (default)
@@ -30,6 +30,11 @@ if ($Stage -ne "installer") {
 
     python -m PyInstaller --noconfirm --clean --distpath "$root\dist" --workpath "$build\pyinstaller" "$PSScriptRoot\polykara.spec"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+
+    # The desktop app (Rust, no third-party crates), next to polykara-cli.exe.
+    cargo build --release --locked --manifest-path "$root\desktop\Cargo.toml"
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    Copy-Item "$root\desktop\target\release\PolyKara.exe" "$root\dist\PolyKara\PolyKara.exe" -Force
 }
 
 if ($Stage -eq "program") { exit 0 }
