@@ -1,4 +1,5 @@
-# PyInstaller build: one folder holding PolyKara.exe (window) and polykara-cli.exe (console).
+# PyInstaller build: one folder holding polykara-cli.exe (console) and PolyKara-classic.exe (the old Tk window).
+# PolyKara.exe, the desktop app, is built from desktop/ (Rust) and copied in by build-windows.ps1.
 # Run through build-windows.ps1, which first fills packaging/build/bin and packaging/build/defaults.
 import os
 
@@ -26,6 +27,6 @@ a = Analysis(
 pyz = PYZ(a.pure)
 # Lyrics and titles are printed as they are; UTF-8 mode keeps the console and pipes from failing on them.
 options = [("X utf8_mode=1", None, "OPTION"), ("u", None, "OPTION")]
-window = EXE(pyz, a.scripts, options, exclude_binaries=True, name="PolyKara", console=False)
+window = EXE(pyz, a.scripts, options, exclude_binaries=True, name="PolyKara-classic", console=False)
 console = EXE(pyz, a.scripts, options, exclude_binaries=True, name="polykara-cli", console=True)
 COLLECT(window, console, a.binaries, a.datas, name="PolyKara")

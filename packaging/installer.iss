@@ -30,6 +30,7 @@ Source: "..\dist\PolyKara\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 
 [Icons]
 Name: "{group}\PolyKara"; Filename: "{app}\PolyKara.exe"
+Name: "{group}\PolyKara (classic window)"; Filename: "{app}\PolyKara-classic.exe"
 Name: "{group}\PolyKara command line"; Filename: "{cmd}"; Parameters: "/k ""{app}\polykara-cli.exe"" --help"
 Name: "{group}\Uninstall PolyKara"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\PolyKara"; Filename: "{app}\PolyKara.exe"; Tasks: desktopicon

@@ -1,9 +1,10 @@
 """Entry point of the Windows build.
 
-The same program is installed twice: PolyKara.exe opens the window, and
-polykara-cli.exe (a console program) runs the command-line pipeline. The
-window starts the console program for each run, so ffmpeg and yt-dlp never
-open console windows of their own.
+The same program is installed twice: polykara-cli.exe (a console program)
+runs the command-line pipeline and the engine behind the desktop app, and
+PolyKara-classic.exe opens the old Tk window. The desktop app, PolyKara.exe,
+is a separate Rust program (desktop/) that starts polykara-cli.exe for each
+run, so ffmpeg and yt-dlp never open console windows of their own.
 """
 import sys
 from pathlib import Path
