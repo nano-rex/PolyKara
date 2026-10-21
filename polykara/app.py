@@ -19,8 +19,8 @@ DEFAULTS = ROOT / "defaults"
 
 
 def prepare() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        # Song titles and lyrics are printed as they are; a Windows pipe defaults to a code page.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        # Song titles and lyrics are printed (and, by the engine, read) as they are; a Windows pipe defaults to a code page.
         if stream is not None and hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     if BIN.is_dir() and str(BIN) not in os.environ.get("PATH", "").split(os.pathsep):

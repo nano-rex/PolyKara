@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import functools
+import io
 import json
 import os
 import shutil
@@ -280,8 +281,11 @@ def handle(request: dict) -> dict:
 
 def serve(source=None, sink=None) -> int:
     """Answer requests until stdin closes."""
-    source = source or sys.stdin
-    sink = sink or sys.stdout
+    if source is None:
+        # The desktop app sends UTF-8, whatever the Windows code page is.
+        source = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+    if sink is None:
+        sink = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
     # Whatever the pipeline prints while answering goes to stderr, never between answers.
     sys.stdout = sys.stderr
     try:
