@@ -51,21 +51,29 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 $lrc = "[00:02.000]<00:02.000>唤<00:02.400>不<00:02.800>醒<00:03.200>原<00:03.600>来<00:04.000>`n[00:05.000]<00:05.000>Hello <00:05.500>PolyKara <00:06.200>world<00:06.800>`n[00:08.000]重来一次`n"
 [IO.File]::WriteAllText("$home_\work\lyrics\demo.timed.lrc", $lrc, $utf8)
 
+$crash = Join-Path ([IO.Path]::GetTempPath()) "polykara-crash.txt"
+Remove-Item $crash -ErrorAction SilentlyContinue
+
+function Show-Crash {
+    if (Test-Path $crash) { Write-Host "PolyKara crashed:"; Get-Content $crash | Write-Host }
+}
+
 function Start-App([string[]]$Arguments) {
     $env:POLYKARA_HOME = $home_
     $env:SDL_AUDIODRIVER = "dummy"
     $proc = if ($Arguments) { Start-Process $exe -ArgumentList $Arguments -PassThru } else { Start-Process $exe -PassThru }
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 500
-        $main = [Ui]::FindWindowW("PolyKaraMain", $null)
+        $main = [Ui]::FindWindowW("PolyKaraMain", [NullString]::Value)
         if ($main -ne [IntPtr]::Zero) { break }
         if ($proc.HasExited) { throw "PolyKara.exe exited with code $($proc.ExitCode)" }
     }
-    if ($main -eq [IntPtr]::Zero) { throw "the PolyKara window did not open" }
+    if ($main -eq [IntPtr]::Zero) { Show-Crash; throw "the PolyKara window did not open" }
     return @($proc, $main)
 }
 
 function Stop-App($proc) {
+    Show-Crash
     if ($proc.HasExited) { throw "PolyKara.exe exited early with code $($proc.ExitCode)" }
     Stop-Process -Id $proc.Id -Force
     Start-Sleep -Seconds 2
@@ -81,7 +89,7 @@ Stop-App $proc
 # 2. Settings.
 $proc, $main = Start-App @("--settings")
 Start-Sleep -Seconds 12
-$settings = [Ui]::FindWindowW("PolyKaraDialog", $null)
+$settings = [Ui]::FindWindowW("PolyKaraDialog", [NullString]::Value)
 if ($settings -eq [IntPtr]::Zero) { throw "the settings window did not open" }
 Capture $settings "$Out\settings.png"
 Stop-App $proc
