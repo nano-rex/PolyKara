@@ -680,7 +680,7 @@ impl EditorPage {
             shared.warn(&format!("ffplay could not be started ({error})."));
             return;
         }
-        win::set_text(self.play_button, "⏸ Pause");
+        win::set_text(self.play_button, "‖ Pause");
         unsafe { SetTimer(shared.main, PLAY_TIMER, 15, std::ptr::null()) };
     }
 

@@ -20,6 +20,19 @@ public static class Ui {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetDlgItemTextW(IntPtr hwnd, int id, System.Text.StringBuilder text, int max);
+    // The text of every message box that is open.
+    public static string[] Messages() {
+        var found = new System.Collections.Generic.List<string>();
+        IntPtr box = IntPtr.Zero;
+        while ((box = FindWindowExW(IntPtr.Zero, box, "#32770", null)) != IntPtr.Zero) {
+            var text = new System.Text.StringBuilder(4096);
+            GetDlgItemTextW(box, 0xFFFF, text, 4096);
+            found.Add(text.ToString());
+        }
+        return found.ToArray();
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
     public static void Key(IntPtr hwnd, int key, bool down) {
         PostMessageW(hwnd, down ? 0x0100u : 0x0101u, (IntPtr)key, (IntPtr)(down ? 1 : unchecked((int)0xC0000001)));
@@ -54,8 +67,12 @@ $lrc = "[00:02.000]<00:02.000>唤<00:02.400>不<00:02.800>醒<00:03.200>原<00:0
 $crash = Join-Path ([IO.Path]::GetTempPath()) "polykara-crash.txt"
 Remove-Item $crash -ErrorAction SilentlyContinue
 
+$engineLog = Join-Path $Out "engine.log"
+$env:POLYKARA_ENGINE_LOG = $engineLog
+
 function Show-Crash {
     if (Test-Path $crash) { Write-Host "PolyKara crashed:"; Get-Content $crash | Write-Host }
+    foreach ($text in [Ui]::Messages()) { if ($text) { Write-Host "Message box open: $text" } }
 }
 
 function Start-App([string[]]$Arguments) {
@@ -110,6 +127,7 @@ Start-Sleep -Milliseconds 500
 [Ui]::Command($main, 202)                                         # Save
 Start-Sleep -Seconds 4
 Stop-App $proc
+if (Test-Path $engineLog) { Write-Host "Engine output:"; Get-Content $engineLog | Select-Object -Last 40 | Write-Host }
 $saved = [IO.File]::ReadAllText("$home_\work\lyrics\demo.timed.lrc", $utf8)
 Write-Host $saved
 $match = [regex]::Match($saved, "<00:0(\d)\.(\d{3})>重<00:0(\d)\.(\d{3})>")

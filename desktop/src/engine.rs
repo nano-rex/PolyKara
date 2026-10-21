@@ -132,12 +132,17 @@ impl<W> Engine<W> {
             let _ = sender.send(Answer { id: None, result: Err(String::new()) });
             repaint();
         });
+        // POLYKARA_ENGINE_LOG names a file that gets everything the engine prints (for support and tests).
+        let mut log = std::env::var_os("POLYKARA_ENGINE_LOG").and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
         thread::spawn(move || {
             for line in BufReader::new(errors).lines() {
                 let line = match line {
                     Ok(line) => line,
                     Err(_) => break,
                 };
+                if let Some(file) = log.as_mut() {
+                    let _ = writeln!(file, "{line}");
+                }
                 let mut tail = stderr.lock().unwrap();
                 tail.push_back(line);
                 if tail.len() > 40 {
