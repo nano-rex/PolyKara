@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "PolyKara"
 path = "src/main.rs"
 
+[[bin]]
+name = "polykara-cli"
+path = "src/bin/polykara-cli.rs"
+
 [profile.release]
 opt-level = 3
 lto = true

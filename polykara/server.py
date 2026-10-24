@@ -24,7 +24,7 @@ from .library import scan, store_lyrics, track_lyrics
 from .manifest import rows
 from .project import EXPORTERS, from_json, load_entries, project_path, save_entries, split_units, to_json
 
-WEB = Path(__file__).resolve().parent / "web"
+WEB = ROOT / "web"
 PEAKS = WORK / "peaks"
 PEAK_RATE = 100
 PAGES = {"/": "studio.html", "/studio": "studio.html", "/player": "player.html", "/lyrics": "desklyric.html"}

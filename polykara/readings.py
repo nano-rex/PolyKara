@@ -19,9 +19,9 @@ import re
 import unicodedata
 from pathlib import Path
 
-from .config import HOME
+from .config import HOME, ROOT
 
-BUILTIN = Path(__file__).resolve().parent / "readings"
+BUILTIN = ROOT / "readings"
 LANGUAGES = ("zh", "yue", "ja")
 HAN = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
 MARKS = {"̄": "1", "́": "2", "̌": "3", "̀": "4"}

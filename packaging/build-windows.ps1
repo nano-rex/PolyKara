@@ -32,9 +32,9 @@ if ($Stage -ne "installer") {
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
     # The desktop app (Rust, no third-party crates), next to polykara-cli.exe.
-    cargo build --release --locked --manifest-path "$root\desktop\Cargo.toml"
+    cargo build --release --locked --manifest-path "$root\Cargo.toml"
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-    Copy-Item "$root\desktop\target\release\PolyKara.exe" "$root\dist\PolyKara\PolyKara.exe" -Force
+    Copy-Item "$root\target\release\PolyKara.exe" "$root\dist\PolyKara\PolyKara.exe" -Force
 }
 
 if ($Stage -eq "program") { exit 0 }
