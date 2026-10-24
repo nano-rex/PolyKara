@@ -10,27 +10,27 @@ PolyKara separates repeatable CLI processing from final GUI adjustments. It prod
 
 ## Windows app
 
-Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
+Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, whisper.cpp with a Whisper model (word timing on the CPU), and the dictionaries behind readings and romanization. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
 
 - **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Time lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, layout and effects, title and credits, video, lyric search, and the player, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
-- The window is a native Windows program written in Rust with no third-party libraries (`src/`), so it opens instantly and keeps up while a song plays. The lyrics, readings and settings files are still handled by the same Python code as the command line, through `polykara-cli.exe engine`. **PolyKara (classic window)** in the Start menu opens the previous Tk window, for comparison while the new one is being tried out.
+- The window is a native Windows program written in Rust with no third-party libraries (`src/`), so it opens instantly and keeps up while a song plays. The lyrics, readings and settings files are handled by the same Rust code as the command line, through `polykara-cli.exe engine`.
 - Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
-- **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
-- The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
+- **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the commands below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
+- The installer includes the `small` Whisper model (about 0.5 GB) and alignment runs on the CPU. To use a larger model, put `ggml-medium.bin` or `ggml-large-v3.bin` in `Documents\PolyKara\models` (or the program's `models` folder); the best installed model that fits memory is used.
 
 Windows may refuse to start an unsigned installer ("An application control policy has blocked this file", Smart App Control). Releases are being set up for free code signing by SignPath Foundation; see [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing policy. Until a signed release is out, right-click the downloaded installer → Properties → tick **Unblock**, then run it again.
 
-To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Python 3.11 or newer, and Rust from rustup). It downloads ffmpeg and yt-dlp, runs PyInstaller, builds the desktop app with `cargo`, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program (including `packaging\ui-test.ps1`, which opens each window and times a word in the timing editor), and attaches the installer to a release when a `v*` tag is pushed.
+To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Rust from rustup; no Python). It downloads ffmpeg, yt-dlp, whisper.cpp, the model and the dictionaries, builds both Rust programs with `cargo`, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program (including `packaging\ui-test.ps1`, which opens each window and times a word in the timing editor), and attaches the installer to a release when a `v*` tag is pushed.
 
-On Linux and macOS, `python3 polykara-gui.py` opens the classic Tk window from a checkout (it needs Python with Tk and the tools listed below); the Rust app is for Windows.
+On Linux and macOS the command line and engine build from a checkout with `cargo build --release`; the window is Windows-only. `polykara-cli studio` serves the timing editor and player in a browser.
 
 ## Quick start
 
 Edit `songs.csv`, then run the complete pipeline:
 
 ```bash
-python3 pipeline.py check
-python3 pipeline.py process
+polykara-cli check
+polykara-cli process
 ```
 
 The end-to-end command downloads media and subtitles, retrieves external lyrics, normalizes audio, creates word-level timing, generates ASS, and renders MP4.
@@ -38,18 +38,18 @@ The end-to-end command downloads media and subtitles, retrieves external lyrics,
 Finished work is reused: a song whose MP4 already exists is skipped, downloaded media and existing word timing are not fetched or computed again, and a song is rendered again automatically when its `.edited.ass` is newer than its MP4. Use `--reprocess` to rebuild the ASS and MP4 anyway, and add `--realign` to repeat word alignment as well.
 
 ```bash
-python3 pipeline.py process --reprocess
-python3 pipeline.py process --reprocess --realign
+polykara-cli process --reprocess
+polykara-cli process --reprocess --realign
 ```
 
-The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable or has no audio track, such as an interrupted download or a failed merge, is removed and downloaded again. Lyrics are collected until the song has at least three usable lyric files (see the accuracy check below); a song that already has them makes no subtitle or lyric-provider request. When every source has been tried, that is remembered so the same lookups are not repeated on every run; `python3 pipeline.py download --reprocess` tries them again.
+The download step checks media and lyrics separately and only fetches what is missing. A video that is already in `work/raw` and playable (checked locally with `ffprobe`) is not downloaded again, and a file that is not playable or has no audio track, such as an interrupted download or a failed merge, is removed and downloaded again. Lyrics are collected until the song has at least three usable lyric files (see the accuracy check below); a song that already has them makes no subtitle or lyric-provider request. When every source has been tried, that is remembered so the same lookups are not repeated on every run; `polykara-cli download --reprocess` tries them again.
 
 ### Songs from media files on your computer
 
 Videos and audio files on your computer can be used instead of a URL. In the window, press **Add files** and pick one or more files; on the command line, run:
 
 ```bash
-python3 pipeline.py add "D:/Music/Raye - Escapism.mp4" ~/Music/*.mp3
+polykara-cli add "D:/Music/Raye - Escapism.mp4" ~/Music/*.mp3
 ```
 
 Each file becomes a row in `songs.csv` with its path in the `url` column. The title and singer come from the file's own tags (title/artist) or, when it has none, from its name: `Artist - Title.mp4`, `01. Artist - Title (Official Video).mkv`, `歌手-歌名.mp3`, or just `Title.mp3`. The language is guessed from the script of the title (Chinese, Japanese, Korean, otherwise English), so check the language, singer and voice before making videos. They are what the lyrics search looks for, together with the file's length.
@@ -69,9 +69,9 @@ Only problems that affect every song stop the run: a missing `yt-dlp`/`ffmpeg`, 
 Every command accepts song ids, either after the command or with `--only`:
 
 ```bash
-python3 pipeline.py process my-song another-song
-python3 pipeline.py render --reprocess --only my-song
-python3 pipeline.py edit my-song
+polykara-cli process my-song another-song
+polykara-cli render --reprocess --only my-song
+polykara-cli edit my-song
 ```
 
 ## Regional YouTube music charts
@@ -79,32 +79,28 @@ python3 pipeline.py edit my-song
 Add the top 10 weekly YouTube songs from every configured region:
 
 ```bash
-python3 pipeline.py download --trending
+polykara-cli download --trending
 ```
 
 Supported regions include Malaysia, Indonesia, Australia, Canada, Singapore, Taiwan, Hong Kong, Japan, South Korea, India, China, USA, and UK. Restrict the regions with codes:
 
 ```bash
-python3 pipeline.py download --trending --regions my,id,au,ca,sg,jp,kr,cn
+polykara-cli download --trending --regions my,id,au,ca,sg,jp,kr,cn
 ```
 
 The default adds all chart candidates to `songs.csv`, deduplicating URLs and IDs. Use `--pick` for interactive selection:
 
 ```bash
-python3 pipeline.py download --trending --pick
+polykara-cli download --trending --pick
 ```
 
-Adding chart entries does not download media. Run `python3 pipeline.py download` afterward, or run `process`.
+Adding chart entries does not download media. Run `polykara-cli download` afterward, or run `process`.
 
 ## Alignment and lyrics
 
-Install the alignment dependencies:
+Word timing uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The Windows installer ships `whisper-cli.exe`, its DLLs and the `small` model. From a checkout, put `whisper-cli` on `PATH` (or set `POLYKARA_WHISPER`), and a `ggml-*.bin` model in `models/` (or set `POLYKARA_WHISPER_MODEL` or `alignment.model_path`).
 
-```bash
-pip install -r requirements-align.txt
-```
-
-WhisperX is preferred. Faster-Whisper is used as a lighter CPU/ARM fallback. The automatic model selector reserves a fixed 2 GiB by default: an 8 GiB system receives a 6 GiB model budget. Override the thresholds or `align_model` in `polykara.toml`/`songs.csv` when needed.
+The automatic model selector reserves a fixed 2 GiB by default and uses the best installed model within the budget: an 8 GiB system receives a 6 GiB budget. Override the thresholds or `align_model` in `polykara.toml`/`songs.csv` when needed.
 
 ### Lyric files and the accuracy check
 
@@ -122,7 +118,7 @@ Every source is saved to its own file so the files can be compared with each oth
 
 A song needs at least three usable lyric files for a proper accuracy check. The download step keeps looking, lyric providers first and YouTube subtitles only if files are still missing, until three exist or every source has been tried. If fewer are available, add a `lyrics_file` or `lyric_pages` (several URLs separated by `|`) in `songs.csv`.
 
-The check runs at the end of `download`, at the start of `lyrics`, and on its own with `python3 pipeline.py verify`; it only reads the lyric files, so it does not need alignment. It compares the files word by word. Lyrics are **verified** when at least three files, including the one used for rendering, agree. Without a `lyrics_file`, the most trusted timed file that the others confirm is used, so one wrong source is outvoted; a `lyrics_file` is always used, and is flagged when the other files contradict it. It prints each file's agreement and saves the result to `work/lyrics/<id>.check.json`. `qa` shows the verdict per song. After alignment, the `lyrics` step also reports how much of the lyrics was recognised in the audio.
+The check runs at the end of `download`, at the start of `lyrics`, and on its own with `polykara-cli verify`; it only reads the lyric files, so it does not need alignment. It compares the files word by word. Lyrics are **verified** when at least three files, including the one used for rendering, agree. Without a `lyrics_file`, the most trusted timed file that the others confirm is used, so one wrong source is outvoted; a `lyrics_file` is always used, and is flagged when the other files contradict it. It prints each file's agreement and saves the result to `work/lyrics/<id>.check.json`. `qa` shows the verdict per song. After alignment, the `lyrics` step also reports how much of the lyrics was recognised in the audio.
 
 Songs that are not verified are still produced, with a warning and an entry in the end-of-run list. Change this in `polykara.toml`:
 
@@ -133,7 +129,7 @@ agreement_threshold = 0.6
 require_verified = true   # skip unverified songs instead of warning
 ```
 
-Install `zhconv` (included in `requirements-romanization.txt`) so that Traditional and Simplified Chinese versions of the same lyrics count as agreeing. When `subtitle_langs` is empty, only subtitles in the song's `language` are requested.
+Traditional and Simplified Chinese versions of the same lyrics count as agreeing, using the bundled OpenCC character table. When `subtitle_langs` is empty, only subtitles in the song's `language` are requested.
 
 LRCLIB is searched with the video title cleaned of decorations such as `(Official Video)`, and the record closest to the video's length is chosen. A warning is printed when the lengths differ by more than five seconds, because the line timing is then likely offset.
 
@@ -170,26 +166,20 @@ Lyrics written in a non-Latin script get a romanized row above the original line
 
 | Script | Romanization | Engine |
 | --- | --- | --- |
-| Chinese (Mandarin) | Pinyin without tone marks, `ni hao` (or `tone = "marks"` for `nǐ hǎo`, `"numbers"` for `ni3 hao3`) | `pypinyin` |
-| Chinese (Cantonese, `language` = `yue` or `zh-hk`) | Jyutping | `ToJyutping` |
-| Japanese | Hepburn romaji | `pykakasi` |
+| Chinese (Mandarin) | Pinyin without tone marks, `ni hao` (or `tone = "marks"` for `nǐ hǎo`, `"numbers"` for `ni3 hao3`) | built-in pinyin data |
+| Chinese (Cantonese, `language` = `yue` or `zh-hk`) | Jyutping | built-in Jyutping trie |
+| Japanese | Hepburn romaji | built-in Hepburn dictionary |
 | Korean | Revised Romanization | built in |
-| Indic scripts (Hindi, Tamil, ...) | ITRANS | `indic-transliteration` |
-| Cyrillic, Greek, Thai, Arabic, Hebrew, others | ASCII transliteration | `anyascii` |
+| Indic scripts (Hindi, Tamil, ...) | ITRANS | built in |
+| Cyrillic, Greek, Thai, Arabic, Hebrew, others | ASCII transliteration | built in |
 
-The engine is chosen from the script of each line, and the song's `language` decides how Chinese characters are read. Install the engines with:
-
-```bash
-pip install -r requirements-romanization.txt
-```
-
-If an engine is missing, the `lyrics` step prints which package to install and that line keeps a single row. Japanese readings from `pykakasi` are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); add such words to the word library below.
+The engine is chosen from the script of each line, and the song's `language` decides how Chinese characters are read. The dictionaries come from pinyin-data, phrase-pinyin-data, ToJyutping, pykakasi and OpenCC; `packaging/fetch-data.ps1` downloads them into `data/`. If a data file is missing, that line keeps a single row. Japanese readings are dictionary-based and can be wrong for names and some kanji (君 may come out as `kun` instead of `kimi`); add such words to the word library below.
 
 Set `[romanization] margin_v` for the height of the row, `languages = ["zh", "ja"]` to limit it to some song languages, or `enabled = false` to turn it off. Use a font with CJK glyphs for these songs, for example `font = "Noto Sans CJK SC"` in `[lyric]` and `[romanization]`.
 
 ### Word library for readings
 
-The engines guess wrong on some words: pypinyin reads 重来 as zhòng lái and 睡不着 as shuì bù zhe, and pykakasi reads 君 as kun. PolyKara keeps a word library of readings that replace the engines' guesses: words that are often misread come with it (`polykara/readings/zh.txt`, `ja.txt`, `yue.txt`), and your own words go in `<PolyKara folder>/readings/<language>.txt` (`Documents\PolyKara\readings` in the Windows app). A word there replaces the same word in the built-in list. The longest word wins, so 重来 can be chóng lái while 重 alone is left to the engine. A doubled word before 地 (慢慢地, 轻轻地) is read de.
+The engines guess wrong on some words: the pinyin data reads 重来 as zhòng lái and 睡不着 as shuì bù zhe, and the Japanese dictionary reads 君 as kun. PolyKara keeps a word library of readings that replace the engines' guesses: words that are often misread come with it (`readings/zh.txt`, `ja.txt`, `yue.txt`), and your own words go in `<PolyKara folder>/readings/<language>.txt` (`Documents\PolyKara\readings` in the Windows app). A word there replaces the same word in the built-in list. The longest word wins, so 重来 can be chóng lái while 重 alone is left to the engine. A doubled word before 地 (慢慢地, 轻轻地) is read de.
 
 ```text
 # Mandarin: one syllable per character, tone marks or numbers
@@ -301,22 +291,22 @@ Lines you have not timed yet are saved at an estimated place between their neigh
 Create editable copies in Aegisub or Subtitle Edit:
 
 ```bash
-python3 pipeline.py edit
+polykara-cli edit
 ```
 
-After saving changes to `work/ass/<id>.edited.ass`, run `python3 pipeline.py render <id>`; a song whose subtitle (edited or automatic) is newer than its MP4 is rendered again without `--reprocess`. `python3 pipeline.py preview <id> --at 60` plays the video with its subtitles from one minute in, without rendering. The edited file is never overwritten.
+After saving changes to `work/ass/<id>.edited.ass`, run `polykara-cli render <id>`; a song whose subtitle (edited or automatic) is newer than its MP4 is rendered again without `--reprocess`. `polykara-cli preview <id> --at 60` plays the video with its subtitles from one minute in, without rendering. The edited file is never overwritten.
 
 Check processing state (media, lyric source, word timing, ASS coverage, and whether the MP4 is stale):
 
 ```bash
-python3 pipeline.py qa
+polykara-cli qa
 ```
 
 Clean reproducible FLAC intermediates:
 
 ```bash
-python3 pipeline.py cleanup --dry-run
-python3 pipeline.py cleanup
+polykara-cli cleanup --dry-run
+polykara-cli cleanup
 ```
 
 Use `cleanup --drop-source` only after confirming that final MP4 files and edited ASS files exist.
@@ -324,27 +314,23 @@ Use `cleanup --drop-source` only after confirming that final MP4 files and edite
 ## Project structure
 
 ```text
-pipeline.py             CLI compatibility entry point (Python)
-polykara/               the Python modules behind the CLI and the classic Tk window
-src/                    the Rust app and the engine ported from polykara/ (Windows API, no third-party crates)
-web/                    studio and player pages served by polykara/server.py
+src/                    the Rust window, command line, engine, pipeline and studio server
+web/                    studio and player pages served by polykara-cli studio
 readings/               built-in word libraries for Mandarin, Cantonese and Japanese
-tests/                  unit tests for parsing, timing, and batch handling
+data/                   dictionaries downloaded by packaging/fetch-data.ps1 (not in git)
+tests/js/               browser tests for the studio pages
 ```
 
 ## Tests
 
-The parsing, timing, and ASS logic has unit tests that need no media, network, or extra packages:
+The parsing, timing, ASS and pipeline logic has unit tests that need no media, network, or extra packages:
 
 ```bash
-python3 -m unittest discover -s tests -t .
-cargo test                                      # the Rust app, engine and pipeline
-cargo run --bin polykara-cli -- check           # the Rust command line
+cargo test
+cargo run --bin polykara-cli -- check           # the command line and its tools
+node tests/js/test_web.js                       # the studio pages (when Node is installed)
 ```
 
-The Rust tree already carries the pipeline and the JSON-lines engine behind the
-window (`polykara-cli`); the installer still ships the Python command line until
-packaging switches over. Word timing stays with the bundled aligner (Whisper),
-which `polykara-cli` calls for one song at a time.
+Word timing uses whisper.cpp, which `polykara-cli` calls for one song at a time; the desktop window and the engine are the same Rust code the command line uses.
 
 Respect the terms of service and copyright requirements of every media and lyrics source.

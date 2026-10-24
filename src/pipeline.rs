@@ -975,7 +975,7 @@ pub fn process(selected: &[String], dry_run: bool, force: bool, realign: bool) -
         return Ok(());
     }
     if !align::available() && songs.iter().any(|row| subtitle::word_json(row).is_none()) {
-        println!("WARN no aligner is installed: songs without word timing cannot be rendered");
+        println!("WARN whisper-cli is not installed: songs without word timing cannot be rendered");
     }
     for folder in [paths().raw.clone(), paths().subtitles.clone(), paths().metadata.clone(), paths().lyrics.clone()] {
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;

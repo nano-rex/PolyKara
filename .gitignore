@@ -1,8 +1,10 @@
 # Generated media, model outputs, and local caches
 work/
-__pycache__/
-*.py[cod]
 songs.csv.tmp
+
+# Downloaded dictionaries and Whisper models
+/data/
+/models/
 
 # Local secrets and editor files
 .env

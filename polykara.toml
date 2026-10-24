@@ -102,10 +102,10 @@ tag = "kf"
 
 [romanization]
 # Lyrics in a non-Latin script get a romanized row above the original line.
-# Engines: pip install -r requirements-romanization.txt (Korean needs none).
+# Engines are built in: the pinyin, Jyutping, Hepburn and ITRANS data is downloaded to data/.
 # "auto" romanizes every line written in a non-Latin script; a list such as
 # ["zh", "ja"] limits it to those song languages. Words the engines misread are
-# corrected from the word library (polykara/readings and <PolyKara folder>/readings).
+# corrected from the word library (readings/ and <PolyKara folder>/readings).
 enabled = true
 languages = "auto"
 font = "Arial"
@@ -209,13 +209,13 @@ preset = "none"
 # scale = 125
 
 [live]
-# python3 pipeline.py live  ->  /dev/videoN needs v4l2loopback (OBS can capture it),
+# Live output  ->  /dev/videoN needs v4l2loopback (OBS can capture it),
 # or use an rtmp://, udp://, or srt:// URL. audio_output: none, pulse, or alsa.
 target = "/dev/video10"
 audio_output = "none"
 audio_device = "default"
 
-# Music player (`python3 pipeline.py player`): folders scanned for audio and video.
+# Music player (`polykara-cli player`): folders scanned for audio and video.
 # Relative paths are inside the PolyKara folder. Lyrics are read from a sidecar file
 # with the same name (.krc .qrc .ksc .lrc .ass .srt .vtt .txt), else looked up on LRCLIB.
 # [player]

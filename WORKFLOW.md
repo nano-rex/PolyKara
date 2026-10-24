@@ -53,5 +53,5 @@ Typical manual changes include:
 5. Keep the original LRC/KRC and timing JSON beside the ASS files.
 
 This means a small correction requires only opening the edited ASS file and
-rerunning the render step for that song (`python3 pipeline.py render <id>`);
+rerunning the render step for that song (`polykara-cli render <id>`);
 downloading and alignment do not need to run again.

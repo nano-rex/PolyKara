@@ -1,7 +1,7 @@
 # Drive the built desktop app on Windows: screenshots of each window, and timing one word in the
 # timing editor end to end (play, hold Space, save), checked in the saved .timed.lrc.
 #   ui-test.ps1 -App dist\PolyKara\PolyKara.exe -Out screenshots
-# The app finds polykara-cli.exe next to it, or pipeline.py above it in a checkout (with python on PATH).
+# The app finds polykara-cli.exe next to it.
 param([string]$App = "dist\PolyKara\PolyKara.exe", [string]$Out = "screenshots")
 $ErrorActionPreference = "Stop"
 $exe = (Resolve-Path $App).Path
@@ -94,7 +94,7 @@ function Stop-App($proc) {
     if ($proc.HasExited) { throw "PolyKara.exe exited early with code $($proc.ExitCode)" }
     Stop-Process -Id $proc.Id -Force
     Start-Sleep -Seconds 2
-    Get-Process polykara-cli, ffplay, python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process polykara-cli, ffplay -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 # 1. The song list.

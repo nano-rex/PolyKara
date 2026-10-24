@@ -1,7 +1,7 @@
 //! PolyKara desktop app for Windows: the song list, the timing editor and the settings.
 //!
 //! The window uses the Windows API directly (no third-party crates); lyrics,
-//! readings and settings files are handled by the Python engine
+//! readings and settings files are handled by the Rust engine
 //! (`polykara-cli engine`), and every pipeline run is the same `polykara-cli`
 //! command the terminal uses.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

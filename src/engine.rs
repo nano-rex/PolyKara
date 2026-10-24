@@ -1,8 +1,8 @@
-//! The Python engine (`polykara-cli engine`) and the command line it belongs to.
+//! The engine (`polykara-cli engine`) and the command line it belongs to.
 //!
 //! The engine answers one JSON request per line. Requests are sent without
 //! waiting; each answer comes back through `poll`, paired with what the app
-//! wanted it for, so the window never waits on Python.
+//! wanted it for, so the window never waits on the engine.
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
@@ -16,7 +16,7 @@ use std::thread;
 use crate::json::Value;
 use crate::tools::{quiet, Wake};
 
-/// How to start the PolyKara command line: polykara-cli next to this program, or pipeline.py with Python.
+/// How to start the PolyKara command line: polykara-cli next to this program.
 #[derive(Clone, Debug)]
 pub struct Cli {
     pub program: PathBuf,
@@ -31,17 +31,11 @@ impl Cli {
         let exe = std::env::current_exe().ok()?;
         let folder = exe.parent()?.to_path_buf();
         let name = if cfg!(windows) { "polykara-cli.exe" } else { "polykara-cli" };
-        if folder.join(name).is_file() {
-            return Some(Cli { program: folder.join(name), prefix: Vec::new() });
+        let program = folder.join(name);
+        if program.is_file() {
+            return Some(Cli { program, prefix: Vec::new() });
         }
-        // A development checkout: desktop/target/<profile>/PolyKara next to pipeline.py.
-        let mut places: Vec<PathBuf> = folder.ancestors().map(Path::to_path_buf).collect();
-        if let Ok(here) = std::env::current_dir() {
-            places.extend(here.ancestors().map(Path::to_path_buf));
-        }
-        let script = places.into_iter().map(|place| place.join("pipeline.py")).find(|script| script.is_file())?;
-        let python = std::env::var_os("POLYKARA_PYTHON").unwrap_or_else(|| if cfg!(windows) { "python".into() } else { "python3".into() });
-        Some(Cli { program: python.into(), prefix: vec![script.into_os_string()] })
+        None
     }
 
     pub fn command<I, S>(&self, args: I) -> Command
@@ -52,7 +46,6 @@ impl Cli {
         let mut command = Command::new(&self.program);
         command.args(&self.prefix);
         command.args(args.into_iter().map(Into::into));
-        command.env("PYTHONUTF8", "1").env("PYTHONUNBUFFERED", "1").env("PYTHONIOENCODING", "utf-8");
         quiet(&mut command);
         command
     }

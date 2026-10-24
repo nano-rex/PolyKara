@@ -1,5 +1,5 @@
 //! The engine behind the desktop app: lyrics, readings, settings and the song
-//! list, over JSON lines (the Python `polykara-cli engine` ported).
+//! list, over JSON lines.
 //!
 //! Each request is one JSON line on stdin, {"id": 1, "cmd": "load", "args": {}},
 //! and each answer one line on stdout, {"id": 1, "ok": true, "result": ...}.
