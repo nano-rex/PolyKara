@@ -24,6 +24,7 @@ pub mod romanize;
 pub mod runner;
 pub mod server;
 pub mod settingsform;
+pub mod studio;
 pub mod subtitle;
 pub mod text;
 pub mod timing;

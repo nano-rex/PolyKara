@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
-use polykara::{config, localmedia, manifest, pipeline, server};
+use polykara::{config, localmedia, manifest, pipeline, server, studio};
 
-const COMMANDS: &[&str] = &["check", "download", "verify", "normalize", "align", "lyrics", "edit", "preview", "render", "process", "cleanup", "qa"];
+const COMMANDS: &[&str] = &["check", "download", "verify", "normalize", "align", "lyrics", "edit", "preview", "render", "process", "cleanup", "qa", "studio", "player"];
 
 fn usage() -> String {
     format!(
@@ -19,7 +19,9 @@ fn usage() -> String {
          Commands: {}\n\
            add FILE...   add media files on this computer as songs\n\
            selftest      check the tools and render a test frame\n\
-           engine        answer the desktop app's JSON requests on stdin\n\
+           engine        answer the desktop app's JSON requests on stdin
+           studio        serve the timing editor and player on localhost
+           player        serve the player on localhost\n\
          \n\
          Options:\n\
            --only IDS      comma-separated song ids (same as listing them)\n\
@@ -175,6 +177,9 @@ fn run() -> i32 {
     let (mut dry_run, mut reprocess, mut realign, mut drop_source, mut trending, mut pick) = (false, false, false, false, false, false);
     let mut regions = String::new();
     let mut at = 0.0f64;
+    let mut host = "127.0.0.1".to_string();
+    let mut port = 8765u16;
+    let mut no_open = false;
     let mut index = 0;
     while index < args.len() {
         let item = args[index].as_str();
@@ -186,6 +191,9 @@ fn run() -> i32 {
             "--drop-source" => drop_source = true,
             "--trending" => trending = true,
             "--pick" => pick = true,
+            "--no-open" => no_open = true,
+            "--host" => host = take(&args, &mut index, item).unwrap_or(host),
+            "--port" => port = take(&args, &mut index, item).and_then(|value| value.trim().parse().ok()).unwrap_or(port),
             "--only" => {
                 if let Some(value) = take(&args, &mut index, item) {
                     selected.extend(value.split(',').map(|item| item.trim().to_string()).filter(|item| !item.is_empty()));
@@ -231,6 +239,8 @@ fn run() -> i32 {
         "render" => pipeline::render(&selection, dry_run, reprocess),
         "process" => pipeline::process(&selection, dry_run, reprocess, realign),
         "cleanup" => pipeline::cleanup(&selection, dry_run, drop_source),
+        "studio" => studio::serve(&host, port, "/", !no_open),
+        "player" => studio::serve(&host, port, "/player", !no_open),
         _ => pipeline::qa(&selection),
     };
     if let Err(problem) = result {
