@@ -11,6 +11,7 @@ pub mod engine;
 pub mod json;
 pub mod kakasi;
 pub mod localmedia;
+pub mod library;
 pub mod lyricformats;
 pub mod manifest;
 pub mod model;
