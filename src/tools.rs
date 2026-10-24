@@ -112,3 +112,142 @@ mod tests {
         assert!(peaks(&[], 8000, 10).is_empty());
     }
 }
+
+/// What PolyKara says it is when it asks web services for lyrics.
+pub const USER_AGENT: &str = "PolyKara/1.0 (+https://github.com/nano-rex/PolyKara)";
+
+/// A web request through curl, which Windows 10 and 11 include: (HTTP status, body).
+pub fn http(url: &str, headers: &[(&str, &str)], body: Option<&[u8]>, timeout_seconds: u32) -> Result<(u16, Vec<u8>), String> {
+    use std::io::Write;
+    const MARK: &[u8] = b"\n__POLYKARA_STATUS__";
+    let mut command = Command::new(crate::config::tool("curl"));
+    command.args(["-sS", "-L", "--compressed", "--max-time"]).arg(timeout_seconds.to_string()).args(["-A", USER_AGENT, "-w", "\n__POLYKARA_STATUS__%{http_code}"]);
+    for (name, value) in headers {
+        command.arg("-H").arg(format!("{name}: {value}"));
+    }
+    if body.is_some() {
+        command.args(["-X", "POST", "--data-binary", "@-"]);
+    }
+    command.arg(url).stdin(if body.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    quiet(&mut command);
+    let mut child = command.spawn().map_err(|error| format!("curl could not be started ({error})"))?;
+    if let Some(body) = body {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(body).map_err(|error| error.to_string())?;
+        }
+    }
+    let output = child.wait_with_output().map_err(|error| error.to_string())?;
+    let data = output.stdout;
+    let at = data.windows(MARK.len()).rposition(|window| window == MARK).ok_or_else(|| {
+        let problem = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if problem.is_empty() { "no answer".to_string() } else { problem }
+    })?;
+    let status = String::from_utf8_lossy(&data[at + MARK.len()..]).trim().parse::<u16>().unwrap_or(0);
+    if status == 0 {
+        let problem = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if problem.is_empty() { "no answer".into() } else { problem });
+    }
+    Ok((status, data[..at].to_vec()))
+}
+
+/// A web request that must succeed (2xx); the error says "HTTP 404" and so on.
+pub fn fetch(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>, HttpError> {
+    match http(url, headers, None, 15) {
+        Ok((status, body)) if (200..300).contains(&status) => Ok(body),
+        Ok((status, _)) => Err(HttpError::Status(status)),
+        Err(problem) => Err(HttpError::Network(problem)),
+    }
+}
+
+#[derive(Debug)]
+pub enum HttpError {
+    Status(u16),
+    Network(String),
+}
+
+impl std::fmt::Display for HttpError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            HttpError::Status(status) => write!(formatter, "HTTP Error {status}"),
+            HttpError::Network(problem) => write!(formatter, "{problem}"),
+        }
+    }
+}
+
+/// Percent-encoding for a URL query value (spaces as +), as Python's urlencode does.
+pub fn quote_plus(text: &str) -> String {
+    let mut out = String::new();
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Percent-encoding for a URL path part (nothing is left unescaped but letters, digits and -_.~).
+pub fn quote(text: &str) -> String {
+    quote_plus(text).replace('+', "%20")
+}
+
+pub fn urlencode(pairs: &[(&str, String)]) -> String {
+    pairs.iter().map(|(key, value)| format!("{}={}", quote_plus(key), quote_plus(value))).collect::<Vec<_>>().join("&")
+}
+
+#[cfg(windows)]
+mod system {
+    #[repr(C)]
+    struct MemoryStatus {
+        length: u32,
+        load: u32,
+        total_physical: u64,
+        available_physical: u64,
+        total_page: u64,
+        available_page: u64,
+        total_virtual: u64,
+        available_virtual: u64,
+        extended: u64,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GlobalMemoryStatusEx(status: *mut MemoryStatus) -> i32;
+        fn GetDiskFreeSpaceExW(folder: *const u16, available: *mut u64, total: *mut u64, free: *mut u64) -> i32;
+    }
+
+    pub fn total_memory() -> u64 {
+        let mut status = MemoryStatus { length: std::mem::size_of::<MemoryStatus>() as u32, load: 0, total_physical: 0, available_physical: 0, total_page: 0, available_page: 0, total_virtual: 0, available_virtual: 0, extended: 0 };
+        if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 { status.total_physical } else { 0 }
+    }
+
+    pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
+        let wide: Vec<u16> = path.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+        let (mut available, mut total, mut free) = (0u64, 0u64, 0u64);
+        (unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, &mut total, &mut free) } != 0).then(|| available)
+    }
+}
+
+#[cfg(not(windows))]
+mod system {
+    pub fn total_memory() -> u64 {
+        std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|text| text.lines().find(|line| line.starts_with("MemTotal:")).and_then(|line| line.split_whitespace().nth(1)).and_then(|value| value.parse::<u64>().ok()))
+            .map(|kib| kib * 1024)
+            .unwrap_or(0)
+    }
+
+    pub fn free_bytes(_path: &std::path::Path) -> Option<u64> {
+        None
+    }
+}
+
+pub fn total_memory() -> u64 {
+    system::total_memory()
+}
+
+pub fn free_bytes(path: &Path) -> Option<u64> {
+    system::free_bytes(path)
+}

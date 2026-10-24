@@ -1,8 +1,26 @@
-//! The parts of the PolyKara desktop app that need no window, so they are tested on any system.
+//! PolyKara: karaoke videos from songs and their lyrics. Everything but the window lives here.
 
+pub mod ass;
+pub mod config;
+pub mod csv;
+pub mod dicts;
+pub mod difflib;
 pub mod engine;
 pub mod json;
+pub mod kakasi;
+pub mod localmedia;
+pub mod lyricformats;
+pub mod manifest;
 pub mod model;
 pub mod player;
+pub mod project;
+pub mod providers;
+pub mod readings;
+pub mod romanize;
 pub mod runner;
+pub mod subtitle;
+pub mod text;
+pub mod timing;
+pub mod toml;
 pub mod tools;
+pub mod verify;
