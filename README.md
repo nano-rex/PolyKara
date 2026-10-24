@@ -13,7 +13,7 @@ PolyKara separates repeatable CLI processing from final GUI adjustments. It prod
 Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, faster-whisper (word timing on the CPU), the romanization engines, and Pillow. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
 
 - **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Choose **Make videos (all steps)** and press **Run**. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Time lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, layout and effects, title and credits, video, lyric search, and the player, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
-- The window is a native Windows program written in Rust with no third-party libraries (`desktop/`), so it opens instantly and keeps up while a song plays. The lyrics, readings and settings files are still handled by the same Python code as the command line, through `polykara-cli.exe engine`. **PolyKara (classic window)** in the Start menu opens the previous Tk window, for comparison while the new one is being tried out.
+- The window is a native Windows program written in Rust with no third-party libraries (`src/`), so it opens instantly and keeps up while a song plays. The lyrics, readings and settings files are still handled by the same Python code as the command line, through `polykara-cli.exe engine`. **PolyKara (classic window)** in the Start menu opens the previous Tk window, for comparison while the new one is being tried out.
 - Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
 - **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the same commands as `pipeline.py` below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
 - The first song you align downloads its Whisper model once (`small` is about 0.5 GB). Alignment runs on the CPU; WhisperX and CUDA are not bundled.
@@ -324,23 +324,11 @@ Use `cleanup --drop-source` only after confirming that final MP4 files and edite
 ## Project structure
 
 ```text
-pipeline.py             CLI compatibility entry point
-polykara/config.py      paths, constants, command helpers
-polykara/manifest.py    manifest and tool validation
-polykara/providers.py   external lyrics and webpage providers
-polykara/charts.py      regional YouTube chart picker
-polykara/alignment.py   WhisperX/Faster-Whisper alignment
-polykara/subtitle.py    LRC/SRT/VTT parsing and timing application
-polykara/verify.py      lyric file collection and accuracy check
-polykara/ass.py         ASS styles, karaoke tags, and pause cues
-polykara/romanize.py    optional romanization engines
-polykara/readings.py    word library that corrects the engines' readings
-polykara/timing.py      hand-made word timing (timing editor files, ffplay clock)
-polykara/engine.py      JSON-lines helper behind the desktop app (polykara-cli engine)
-polykara/settingsfile.py polykara.toml as form fields, edited in place
-polykara/editor.py      timing editor tab of the classic Tk window
-polykara/gui.py         the classic Tk window
-desktop/                the Windows desktop app (Rust, Windows API, no third-party crates)
+pipeline.py             CLI compatibility entry point (Python)
+polykara/               the Python modules behind the CLI and the classic Tk window
+src/                    the Rust app and the engine ported from polykara/ (Windows API, no third-party crates)
+web/                    studio and player pages served by polykara/server.py
+readings/               built-in word libraries for Mandarin, Cantonese and Japanese
 tests/                  unit tests for parsing, timing, and batch handling
 ```
 
@@ -350,7 +338,7 @@ The parsing, timing, and ASS logic has unit tests that need no media, network, o
 
 ```bash
 python3 -m unittest discover -s tests -t .
-cargo test --manifest-path desktop/Cargo.toml   # the desktop app's timing, player clock and JSON logic
+cargo test                                      # the Rust app's timing, player clock and JSON logic
 ```
 
 Respect the terms of service and copyright requirements of every media and lyrics source.
