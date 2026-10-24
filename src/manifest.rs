@@ -136,7 +136,7 @@ pub fn check(need_ytdlp: bool) -> Result<(), String> {
     for tool in tools {
         println!("{tool}: {}", config::find_tool(tool).map(|path| path.display().to_string()).unwrap_or_else(|| "MISSING".into()));
     }
-    println!("aligner: {}", config::find_tool("whisper-cli").map(|path| format!("whisper.cpp ({})", path.display())).unwrap_or_else(|| "MISSING (whisper-cli from whisper.cpp)".into()));
+    println!("aligner: {}", crate::align::shown());
     println!("romanization: {}", crate::romanize::dictionaries_status());
     let base = if paths().work.exists() { paths().work.clone() } else { paths().home.clone() };
     if let Some(free) = free_gib(&base) {

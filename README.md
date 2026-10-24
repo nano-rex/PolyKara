@@ -338,7 +338,13 @@ The parsing, timing, and ASS logic has unit tests that need no media, network, o
 
 ```bash
 python3 -m unittest discover -s tests -t .
-cargo test                                      # the Rust app's timing, player clock and JSON logic
+cargo test                                      # the Rust app, engine and pipeline
+cargo run --bin polykara-cli -- check           # the Rust command line
 ```
+
+The Rust tree already carries the pipeline and the JSON-lines engine behind the
+window (`polykara-cli`); the installer still ships the Python command line until
+packaging switches over. Word timing stays with the bundled aligner (Whisper),
+which `polykara-cli` calls for one song at a time.
 
 Respect the terms of service and copyright requirements of every media and lyrics source.

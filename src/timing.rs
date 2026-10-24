@@ -72,6 +72,15 @@ pub fn lines_from_text(text: &str) -> Vec<Line> {
 ///
 /// A changed line keeps its line times, and the timing of its words when it
 /// still has the same number of them (a corrected typo).
+/// The lyrics text of the lines, one per line, with the singer prefix.
+pub fn lines_to_text(lines: &[Line]) -> String {
+    lines
+        .iter()
+        .map(|line| if line.speaker.is_empty() { line.text() } else { format!("[singer: {}] {}", line.speaker, line.text()) })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn retext(lines: &[Line], text: &str) -> Vec<Line> {
     let mut fresh = lines_from_text(text);
     let old: Vec<String> = lines.iter().map(Line::text).collect();
