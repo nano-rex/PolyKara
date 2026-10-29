@@ -130,6 +130,40 @@ fn whisper_language(language: &str, model: &str) -> String {
     code
 }
 
+/// How much lyric text to prime whisper.cpp with. whisper truncates the initial
+/// prompt to about half the context window, so a cap keeps it well within that.
+const PROMPT_MAX_CHARS: usize = 700;
+
+/// The lyrics to prime whisper.cpp with for this song, if any lyric file is present.
+/// Prefers the file the accuracy check trusts most, falling back to the first found.
+fn lyric_prompt(row: &Row) -> Option<String> {
+    let check = crate::verify::check_lyrics(row).ok()?;
+    let file = check.primary().or_else(|| check.files.first())?;
+    prompt_from_lines(file.entries.iter().map(|entry| entry.text.as_str()), PROMPT_MAX_CHARS)
+}
+
+/// Join lyric lines into a single prompt, trimmed to `max_chars` characters.
+fn prompt_from_lines<'a>(lines: impl Iterator<Item = &'a str>, max_chars: usize) -> Option<String> {
+    let mut text = String::new();
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(line);
+        if text.chars().count() >= max_chars {
+            break;
+        }
+    }
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(max_chars).collect())
+}
+
 /// Time one song's words with whisper.cpp.
 pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
     let sid = get(row, "id");
@@ -149,7 +183,7 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
     })?;
     let language = whisper_language(&language, &model);
     let base = paths().work.join("whisper").join(sid);
-    let args = vec![
+    let mut args = vec![
         "-m".to_string(),
         model_file.display().to_string(),
         "-f".to_string(),
@@ -163,7 +197,20 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
         "--split-on-word".to_string(),
         "-np".to_string(),
     ];
-    println!("$ {} {}", whisper.display(), args.join(" "));
+    // Prime recognition with the lyrics we already have, so whisper.cpp hears the
+    // actual words — especially names and CJK readings it would otherwise guess.
+    // The initial prompt biases decoding; it does not force the text.
+    if let Some(prompt) = lyric_prompt(row) {
+        println!("{sid}: priming word timing with the known lyrics");
+        args.push("--prompt".to_string());
+        args.push(prompt);
+    }
+    let shown: Vec<&str> = args
+        .iter()
+        .enumerate()
+        .map(|(index, value)| if index > 0 && args[index - 1] == "--prompt" { "<lyrics>" } else { value.as_str() })
+        .collect();
+    println!("$ {} {}", whisper.display(), shown.join(" "));
     if dry_run {
         return Ok(());
     }
@@ -304,5 +351,19 @@ mod tests {
     fn empty_transcripts_are_reported() {
         let data = Value::parse(r#"{"transcription": [{"text": " ", "tokens": []}]}"#).unwrap();
         assert!(convert(&data).is_err());
+    }
+
+    #[test]
+    fn prompt_joins_non_empty_lines() {
+        let lines = ["  Hello world ", "", "   ", "second line"];
+        assert_eq!(prompt_from_lines(lines.into_iter(), 700).unwrap(), "Hello world second line");
+    }
+
+    #[test]
+    fn prompt_is_capped_and_none_when_blank() {
+        let long = "a".repeat(1000);
+        let capped = prompt_from_lines([long.as_str()].into_iter(), 700).unwrap();
+        assert_eq!(capped.chars().count(), 700);
+        assert!(prompt_from_lines(["", "   "].into_iter(), 700).is_none());
     }
 }

@@ -111,6 +111,21 @@ mod tests {
         assert_eq!(peaks(&samples, 200, 10), vec![300, 20, 32767]);
         assert!(peaks(&[], 8000, 10).is_empty());
     }
+
+    #[test]
+    fn only_transient_failures_are_retried() {
+        assert!(transient(&HttpError::Network("timeout".into())));
+        assert!(transient(&HttpError::Status(429)));
+        assert!(transient(&HttpError::Status(503)));
+        assert!(!transient(&HttpError::Status(404)));
+        assert!(!transient(&HttpError::Status(200)));
+    }
+
+    #[test]
+    fn backoff_grows() {
+        assert_eq!(backoff(1).as_millis(), 500);
+        assert_eq!(backoff(2).as_millis(), 1500);
+    }
 }
 
 /// What PolyKara says it is when it asks web services for lyrics.
@@ -150,13 +165,40 @@ pub fn http(url: &str, headers: &[(&str, &str)], body: Option<&[u8]>, timeout_se
     Ok((status, data[..at].to_vec()))
 }
 
-/// A web request that must succeed (2xx); the error says "HTTP 404" and so on.
-pub fn fetch(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>, HttpError> {
-    match http(url, headers, None, 15) {
-        Ok((status, body)) if (200..300).contains(&status) => Ok(body),
-        Ok((status, _)) => Err(HttpError::Status(status)),
-        Err(problem) => Err(HttpError::Network(problem)),
+/// A transient failure worth retrying: a network error, a rate limit, or a 5xx.
+/// A 404 or other 4xx is the server's final answer and is not retried.
+fn transient(error: &HttpError) -> bool {
+    match error {
+        HttpError::Network(_) => true,
+        HttpError::Status(status) => *status == 429 || (500..600).contains(status),
     }
+}
+
+/// Backoff before retry `attempt` (1-based): 0.5s, then 1.5s.
+fn backoff(attempt: u32) -> std::time::Duration {
+    std::time::Duration::from_millis(500 * ((1u64 << attempt) - 1))
+}
+
+/// A web request that must succeed (2xx); the error says "HTTP 404" and so on.
+///
+/// A transient failure (a dropped connection, a timeout, a rate limit) is retried
+/// a few times with a short backoff, so one network blip does not permanently
+/// sideline a lyric source for the rest of a batch.
+pub fn fetch(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>, HttpError> {
+    const ATTEMPTS: u32 = 3;
+    for attempt in 1..=ATTEMPTS {
+        let last = match http(url, headers, None, 15) {
+            Ok((status, body)) if (200..300).contains(&status) => return Ok(body),
+            Ok((status, _)) => HttpError::Status(status),
+            Err(problem) => HttpError::Network(problem),
+        };
+        if attempt < ATTEMPTS && transient(&last) {
+            std::thread::sleep(backoff(attempt));
+            continue;
+        }
+        return Err(last);
+    }
+    unreachable!()
 }
 
 #[derive(Debug)]
