@@ -16,7 +16,9 @@ use crate::json::Value;
 use crate::localmedia::{bring_in, is_local, probe};
 use crate::manifest::{self, find_source, get, source};
 use crate::providers;
+use crate::reconcile;
 use crate::romanize;
+use crate::separate;
 use crate::subtitle::{self, Entry};
 use crate::verify::{self, Kind, LyricCheck};
 
@@ -571,6 +573,120 @@ pub fn lyrics(selected: &[String], dry_run: bool) -> Result<(), String> {
     Ok(())
 }
 
+// ------------------------------------------------------------------ generate
+
+/// An LRC timestamp `[mm:ss.cc]` for a time in milliseconds.
+fn lrc_stamp(ms: i64) -> String {
+    let ms = ms.max(0);
+    format!("{:02}:{:02}.{:02}", ms / 60000, ms / 1000 % 60, ms / 10 % 100)
+}
+
+/// Save whisper's vocal transcript as a timed lyric source, `<id>.heard.lrc`.
+fn write_heard(sid: &str, segments: &[&Value]) -> Result<(), String> {
+    let mut lrc = String::new();
+    for segment in segments {
+        let text = segment.get("text").str().trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        let start = (segment.get("start").as_f64().unwrap_or(0.0) * 1000.0) as i64;
+        lrc.push_str(&format!("[{}]{}\n", lrc_stamp(start), text));
+    }
+    if lrc.trim().is_empty() {
+        return Err("the vocal transcript was empty".into());
+    }
+    let path = paths().lyrics.join(format!("{sid}.heard.lrc"));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(path, lrc).map_err(|error| error.to_string())
+}
+
+/// Generate lyrics for one song: find them online, isolate the vocal and transcribe
+/// it, then reconcile the two so the online lyrics can be checked and corrected.
+fn generate_song(row: &Row, dry_run: bool) -> Step {
+    let sid = get(row, "id");
+    if !separate::available() {
+        return Err(fail("a vocal separator is not installed; run selftest to see what is missing"));
+    }
+    if !align::available() {
+        return Err(fail("whisper-cli is not installed; run selftest to see what is missing"));
+    }
+    let language = get(row, "language").trim().to_string();
+    if language.is_empty() {
+        return Err(Failure::Skip("set the song's language before generating lyrics".into()));
+    }
+    // 1. Look for the lyrics online first.
+    download_lyrics(row, dry_run, false).map_err(fail)?;
+    let online_primary = verify::check_lyrics(row).map_err(fail)?.primary().cloned();
+
+    // 2. Isolate the vocal from the source media, through a clean stereo wav.
+    let media = source(sid).map_err(fail)?;
+    let input = paths().work.join("vocals").join(format!("{sid}.input.wav"));
+    if !dry_run {
+        std::fs::create_dir_all(paths().work.join("vocals")).map_err(|error| fail(error.to_string()))?;
+        let args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-y", "-i"]
+            .iter()
+            .map(|item| item.to_string())
+            .chain(std::iter::once(media.display().to_string()))
+            .chain(["-vn", "-ac", "2", "-ar", "44100"].iter().map(|item| item.to_string()))
+            .chain(std::iter::once(input.display().to_string()))
+            .collect();
+        config::run("ffmpeg", &args, false, None).map_err(fail)?;
+    }
+    let vocals = separate::separate(sid, &input, dry_run).map_err(fail)?;
+
+    // 3. Transcribe the vocal, unbiased (no lyric prompt), so it is an independent witness.
+    let base = paths().work.join("whisper").join(format!("{sid}.vocal"));
+    let timing = match align::transcribe(row, &vocals, &language, &base, None, dry_run).map_err(fail)? {
+        Some(timing) => timing,
+        None => return Ok(()), // dry run
+    };
+
+    // 4. Save the transcript as a timed source and reconcile it with the online lyrics.
+    let segments = timing.get("segments").items().iter().collect::<Vec<_>>();
+    write_heard(sid, &segments).map_err(fail)?;
+    let heard_text: String = segments
+        .iter()
+        .map(|segment| segment.get("text").str().trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let heard_tokens = verify::comparison_tokens(&heard_text);
+
+    match online_primary {
+        Some(primary) => {
+            let online_lines: Vec<String> = primary.entries.iter().map(|entry| entry.text.clone()).collect();
+            let threshold = load_config().get("lyrics").float_or("agreement_threshold", 0.6);
+            let report = reconcile::reconcile(&online_lines, &heard_tokens, threshold);
+            println!(
+                "{sid}: the vocal transcript agrees {:.0}% with the online lyrics; {} of {} lines confirmed",
+                report.agreement * 100.0,
+                report.confirmed(),
+                report.lines.len()
+            );
+            let flagged = report.flagged();
+            for line in flagged.iter().take(12) {
+                println!("{sid}: check this line (heard {:.0}%): {}", line.confidence * 100.0, line.text.trim());
+            }
+            if flagged.len() > 12 {
+                println!("{sid}: ...and {} more line(s) to check", flagged.len() - 12);
+            }
+            println!("{sid}: kept the online lyrics ({}); the transcript is saved for the accuracy check. Fix the flagged lines in the editor.", primary.label);
+        }
+        None => {
+            println!("{sid}: no lyrics were found online; using the vocal transcript as the lyrics — check them in the editor.");
+        }
+    }
+    Ok(())
+}
+
+pub fn generate(selected: &[String], dry_run: bool) -> Result<(), String> {
+    let songs = manifest::rows(selected)?;
+    each("generate", &songs, |row| generate_song(row, dry_run));
+    Ok(())
+}
+
 // ------------------------------------------------------------------ render
 
 fn render_subtitle(row: &Row) -> PathBuf {
@@ -1035,6 +1151,8 @@ pub fn selftest() -> i32 {
     if aligner == "MISSING" {
         problems.push("no aligner".into());
     }
+    // The separator is optional: only 'generate' needs it, so a miss is not a failure.
+    println!("separator: {} (used by 'generate')", separate::shown());
     let mut row: Row = Row::new();
     for (key, value) in [("id", "selftest"), ("title", "PolyKara 自检"), ("artist", "歌手 & Singer"), ("composer", "作曲"), ("lyricist", "作词"), ("producer", "PolyKara"), ("language", "zh"), ("voice", "duet")] {
         row.insert(key.to_string(), value.to_string());

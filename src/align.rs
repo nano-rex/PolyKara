@@ -164,16 +164,16 @@ fn prompt_from_lines<'a>(lines: impl Iterator<Item = &'a str>, max_chars: usize)
     Some(text.chars().take(max_chars).collect())
 }
 
-/// Time one song's words with whisper.cpp.
-pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
-    let sid = get(row, "id");
-    let language = get(row, "language").trim().to_string();
+/// Run whisper.cpp on `audio`, writing its scratch JSON under `out_base`, and return
+/// the grouped {"segments": [...]} word timing. `prompt` primes recognition toward
+/// known words; pass None to keep the transcript an unbiased witness of what was sung.
+/// Returns None on a dry run (the command is printed but not executed).
+pub fn transcribe(row: &Row, audio: &Path, language: &str, out_base: &Path, prompt: Option<&str>, dry_run: bool) -> Result<Option<Value>, String> {
     if language.is_empty() {
         return Err("language is missing".into());
     }
-    let audio = paths().audio.join(format!("{sid}.flac"));
     if !audio.exists() && !dry_run {
-        return Err(format!("normalized audio is missing: {}", audio.display()));
+        return Err(format!("audio is missing: {}", audio.display()));
     }
     let whisper = find().ok_or_else(|| "whisper-cli is not installed: put it in the PolyKara bin folder or on PATH".to_string())?;
     let model = alignment_model(row);
@@ -181,8 +181,7 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
         let name = if model.ends_with(".bin") { model.clone() } else { format!("ggml-{model}.bin") };
         format!("the whisper.cpp model {name} is missing: put it in {} or set alignment.model_path", paths().models.display())
     })?;
-    let language = whisper_language(&language, &model);
-    let base = paths().work.join("whisper").join(sid);
+    let language = whisper_language(language, &model);
     let mut args = vec![
         "-m".to_string(),
         model_file.display().to_string(),
@@ -193,17 +192,13 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
         "-oj".to_string(),
         "-ojf".to_string(),
         "-of".to_string(),
-        base.display().to_string(),
+        out_base.display().to_string(),
         "--split-on-word".to_string(),
         "-np".to_string(),
     ];
-    // Prime recognition with the lyrics we already have, so whisper.cpp hears the
-    // actual words — especially names and CJK readings it would otherwise guess.
-    // The initial prompt biases decoding; it does not force the text.
-    if let Some(prompt) = lyric_prompt(row) {
-        println!("{sid}: priming word timing with the known lyrics");
+    if let Some(prompt) = prompt {
         args.push("--prompt".to_string());
-        args.push(prompt);
+        args.push(prompt.to_string());
     }
     let shown: Vec<&str> = args
         .iter()
@@ -212,10 +207,11 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
         .collect();
     println!("$ {} {}", whisper.display(), shown.join(" "));
     if dry_run {
-        return Ok(());
+        return Ok(None);
     }
-    std::fs::create_dir_all(paths().work.join("whisper")).map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(paths().align.clone()).map_err(|error| error.to_string())?;
+    if let Some(folder) = out_base.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
     let mut command = Command::new(&whisper);
     command.args(&args).stdin(Stdio::null());
     crate::tools::quiet(&mut command);
@@ -223,12 +219,32 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
     if !status.success() {
         return Err(format!("{} exited with status {}", whisper.display(), status.code().unwrap_or(-1)));
     }
-    let raw = PathBuf::from(format!("{}.json", base.display()));
+    let raw = PathBuf::from(format!("{}.json", out_base.display()));
     let text = std::fs::read_to_string(&raw).map_err(|error| format!("whisper.cpp wrote no JSON ({}): {error}", raw.display()))?;
     let data = Value::parse(&text).map_err(|error| format!("whisper.cpp wrote invalid JSON: {error}"))?;
     let timing = convert(&data)?;
-    std::fs::write(paths().align.join(format!("{sid}.json")), format!("{}\n", timing.dump())).map_err(|error| error.to_string())?;
     let _ = std::fs::remove_file(&raw);
+    Ok(Some(timing))
+}
+
+/// Time one song's words with whisper.cpp, priming it with the known lyrics.
+pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
+    let sid = get(row, "id");
+    let language = get(row, "language").trim().to_string();
+    let audio = paths().audio.join(format!("{sid}.flac"));
+    let base = paths().work.join("whisper").join(sid);
+    // Prime recognition with the lyrics we already have, so whisper.cpp hears the
+    // actual words — especially names and CJK readings it would otherwise guess.
+    let prompt = lyric_prompt(row);
+    if prompt.is_some() {
+        println!("{sid}: priming word timing with the known lyrics");
+    }
+    let timing = match transcribe(row, &audio, &language, &base, prompt.as_deref(), dry_run)? {
+        Some(timing) => timing,
+        None => return Ok(()),
+    };
+    std::fs::create_dir_all(paths().align.clone()).map_err(|error| error.to_string())?;
+    std::fs::write(paths().align.join(format!("{sid}.json")), format!("{}\n", timing.dump())).map_err(|error| error.to_string())?;
     Ok(())
 }
 

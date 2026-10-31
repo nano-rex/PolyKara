@@ -153,6 +153,15 @@ large_min_budget_gib = 12
 cpu_threads = 0
 num_workers = 1
 
+[separation]
+# Vocal/instrument separation for `generate` (UVR-style). PolyKara shells out to a
+# bundled separator, the way it uses ffmpeg and whisper.cpp. Leave these empty to use
+# the bundled program and model; set them to use your own.
+# program = ""      # the separator program; found next to PolyKara or on PATH by default
+# model_path = ""   # the folder holding the separation model
+# args = ""         # argument template; placeholders {model} {input} {output_dir}
+#                   # (empty uses: [model] <input> <output_dir>, as demucs.cpp.main expects)
+
 [timing]
 long_pause_ms = 10000
 dot_interval_ms = 1000

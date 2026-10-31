@@ -11,6 +11,7 @@ use crate::win::{self, ffi::*};
 const ACTIONS: &[(&str, &str, bool)] = &[
     ("Make videos (all steps)", "process", true),
     ("Download only", "download", true),
+    ("Generate lyrics (separate vocal + transcribe)", "generate", true),
     ("Make subtitles only", "lyrics", true),
     ("Render videos only", "render", true),
     ("Check lyrics accuracy", "verify", true),
@@ -205,7 +206,7 @@ impl SongsPage {
             (ID_ADD_FILES, "Add files"),
             (ID_EDIT, "Edit"),
             (ID_REMOVE, "Remove"),
-            (ID_TIME, "Time lyrics"),
+            (ID_TIME, "Edit lyrics"),
             (ID_EDIT_ASS, "Edit ASS file"),
             (ID_PLAY, "Play video"),
             (ID_VIDEOS, "Open videos folder"),
@@ -513,7 +514,7 @@ impl SongsPage {
                     shared.save_songs();
                 }
             }
-            ID_TIME => return self.one_selected(shared, "Select one song to time its lyrics.").map(Action::TimeLyrics),
+            ID_TIME => return self.one_selected(shared, "Select one song to open its lyrics in the editor.").map(Action::TimeLyrics),
             ID_EDIT_ASS => {
                 if let Some(sid) = self.one_selected(shared, "Select one song whose subtitles you want to edit.") {
                     shared.start(vec!["edit".into(), sid]);

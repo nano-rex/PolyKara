@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use polykara::{config, localmedia, manifest, pipeline, server, studio};
 
-const COMMANDS: &[&str] = &["check", "download", "verify", "normalize", "align", "lyrics", "edit", "preview", "render", "process", "cleanup", "qa", "studio", "player"];
+const COMMANDS: &[&str] = &["check", "download", "verify", "normalize", "align", "lyrics", "generate", "edit", "preview", "render", "process", "cleanup", "qa", "studio", "player"];
 
 fn usage() -> String {
     format!(
@@ -234,6 +234,7 @@ fn run() -> i32 {
         "normalize" => pipeline::normalize(&selection, dry_run, reprocess),
         "align" => pipeline::align_stage(&selection, dry_run, reprocess),
         "lyrics" => pipeline::lyrics(&selection, dry_run),
+        "generate" => pipeline::generate(&selection, dry_run),
         "edit" => pipeline::edit_all(&selection),
         "preview" => pipeline::preview_all(&selection, at),
         "render" => pipeline::render(&selection, dry_run, reprocess),

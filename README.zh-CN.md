@@ -8,7 +8,7 @@
 
 从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、ffplay、yt-dlp、whisper.cpp 与 Whisper 模型（CPU 对轴），以及读音和罗马音所需的词典数据。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
 
-- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Time lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、布局和特效、标题和制作人员、视频、歌词搜索、播放器等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Edit lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、布局和特效、标题和制作人员、视频、歌词搜索、播放器等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
 - 窗口是用 Rust 编写的原生 Windows 程序（`src/`，不使用任何第三方库），启动快、播放时不卡顿；歌词、读音和设置文件由与命令行相同的 Rust 代码处理（`polykara-cli.exe engine`）。
 - 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
 - **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令见下文；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
@@ -130,7 +130,7 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 
 窗口中的 **Timing editor** 页可以边播放歌曲边手动对轴，用法类似傻丫头字幕精灵（Sayatoo）。自动对轴不准，或网上找不到歌词时（用 **Lyrics text…** 粘贴歌词）都可以使用。
 
-1. 在 **Songs** 页选中一首已下载的歌曲，按 **Time lyrics**（或在编辑器的歌曲列表中选择）。编辑器会先提取一次音频并画出波形。
+1. 在 **Songs** 页选中一首已下载的歌曲，按 **Edit lyrics**（或在编辑器的歌曲列表中选择）。编辑器会先提取一次音频并画出波形。
 2. 按 **Enter** 播放。高亮的字（中日韩文为一个字，其他语言为一个词）就是下一个要对的字。唱到它时**按住空格**：按下为开始，松开为结束。**Tap** 模式下每按一次就开始下一个字，同时结束上一个字。唱得太快时可以用 **Speed** 放慢；总是按晚的话可以设置 **Reaction delay**。
 3. **Backspace** 撤销上一个字并回退 2 秒；**↑/↓** 跳到上一行或下一行；**←/→** 前后跳 3 秒；点击歌词中的字可以从那里重新开始。
 4. 时间轴上拖动一个字可以移动它，拖动边缘可以改开始或结束时间；点击空白处移动播放位置，用 Ctrl+滚轮或缩放按钮缩放。**Shift+←/→** 把选中的字前后微调 10 毫秒，**Ctrl+Z** 撤销，**Clear line timing** 清除一行重新对。右侧预览按视频中的颜色显示正在唱的行。

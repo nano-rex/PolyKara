@@ -167,6 +167,12 @@ pub fn candidates(row: &Row) -> Result<Vec<(String, String, Kind, PathBuf)>, Str
             found.push(("auto-captions".into(), "automatic captions".into(), Kind::Subtitle, automatic));
         }
     }
+    // What whisper.cpp heard in the isolated vocal (see `generate`): a low-trust,
+    // independent witness, so a single wrong online source can be outvoted.
+    let heard = paths().lyrics.join(format!("{sid}.heard.lrc"));
+    if heard.exists() {
+        found.push(("vocal".into(), "vocal transcript".into(), Kind::Lrc, heard));
+    }
     for (name, kind, path) in external {
         if kind == Kind::Plain {
             found.push((name.clone(), format!("{name} lyrics"), Kind::Plain, path));

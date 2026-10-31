@@ -49,6 +49,13 @@ impl Value {
         }
     }
 
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Number(number) if number.is_finite() => Some(*number),
+            _ => None,
+        }
+    }
+
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(value) => Some(*value),
