@@ -153,6 +153,11 @@ large_min_budget_gib = 12
 cpu_threads = 0
 num_workers = 1
 
+[editor]
+# The Subtitle editor's starting reaction delay (ms): live key presses are timed
+# this much earlier, to cancel out human tapping lag. Adjust per song in the editor.
+reaction_delay_ms = 150
+
 [separation]
 # Vocal/instrument separation for `generate` (UVR-style). PolyKara shells out to a
 # bundled separator (stems.cpp — HTDemucs on ggml), the way it uses ffmpeg and

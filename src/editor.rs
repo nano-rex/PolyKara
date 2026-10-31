@@ -23,7 +23,7 @@ const SPEEDS: &[(&str, f64)] = &[("100%", 1.0), ("85%", 0.85), ("75%", 0.75), ("
 const MODES: &[(&str, KeyMode)] = &[("Hold (press = start, release = end)", KeyMode::Hold), ("Tap (each press starts the next word)", KeyMode::Tap)];
 const LYRIC_FACE: &str = "Microsoft YaHei UI";
 const HELP: &str = "Enter: play / pause    Hold Space: time the highlighted word    Backspace: undo the last word and go back    \
-←/→: 3 s back / forward    ↑/↓: previous / next line    Shift+←/→: nudge the selected word 10 ms    Ctrl+Z: undo    Ctrl+S: save";
+←/→: 3 s back / forward    ↑/↓: previous / next line    Shift+←/→: nudge the selected word 10 ms    Ctrl+Shift+←/→: shift the whole line 10 ms    Ctrl+Z: undo    Ctrl+S: save";
 // Timeline rows at 96 DPI: ruler, waveform, words, lines.
 const RULER: i32 = 18;
 const WAVE_TOP: i32 = 22;
@@ -209,7 +209,10 @@ impl EditorPage {
         let keys = shared.styled(win::combo(main, ID_KEYS, &MODES.iter().map(|(name, _)| *name).collect::<Vec<_>>(), false));
         win::select(keys, Some(0));
         let delay_label = shared.styled(win::label(main, "Reaction delay (ms)"));
-        let delay = shared.styled(win::edit(main, ID_DELAY, "0", ES_NUMBER));
+        // Start from a realistic human tapping lag so live timing is not systematically
+        // late; [editor] reaction_delay_ms in polykara.toml overrides it.
+        let default_delay = polykara::config::load_config().get("editor").int_or("reaction_delay_ms", 150).clamp(0, 2000).to_string();
+        let delay = shared.styled(win::edit(main, ID_DELAY, &default_delay, ES_NUMBER));
         let source = shared.styled(win::child("STATIC", "", SS_RIGHT | SS_NOPREFIX | SS_ENDELLIPSIS | SS_CENTERIMAGE, main, 0));
         let lyrics = pane(shared, WS_VSCROLL);
         let stage = pane(shared, 0);
@@ -792,6 +795,8 @@ impl EditorPage {
         match key {
             VK_RETURN => self.toggle(shared),
             VK_BACK => self.step_back(shared),
+            VK_LEFT if control && shift => self.nudge_line(-10),
+            VK_RIGHT if control && shift => self.nudge_line(10),
             VK_LEFT if shift => self.nudge(-10),
             VK_RIGHT if shift => self.nudge(10),
             VK_LEFT => {
@@ -850,6 +855,12 @@ impl EditorPage {
 
     fn nudge(&mut self, delta: i64) {
         if self.session.nudge(delta) {
+            self.changed();
+        }
+    }
+
+    fn nudge_line(&mut self, delta: i64) {
+        if self.session.nudge_line(delta) {
             self.changed();
         }
     }

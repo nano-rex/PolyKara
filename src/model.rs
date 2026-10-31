@@ -342,6 +342,24 @@ impl Session {
         true
     }
 
+    /// Shift every timed token of the selected (or cursor) line by `delta` ms, so a
+    /// line that is consistently early or late is corrected in one move.
+    pub fn nudge_line(&mut self, delta: i64) -> bool {
+        let li = match self.selected.or(self.cursor) {
+            Some((li, _)) if li < self.lines.len() => li,
+            _ => return false,
+        };
+        if !self.lines[li].tokens.iter().any(|token| token.timed()) {
+            return false;
+        }
+        self.remember();
+        for token in &mut self.lines[li].tokens {
+            token.start = token.start.map(|value| (value + delta).max(0));
+            token.end = token.end.map(|value| (value + delta).max(0));
+        }
+        true
+    }
+
     pub fn clear_line(&mut self) -> bool {
         let li = match self.selected.or(self.cursor) {
             Some((li, _)) if li < self.lines.len() => li,
@@ -400,6 +418,21 @@ mod tests {
         assert_eq!(session.holding, Some((0, 2)));
         session.release(2400);
         assert_eq!(session.lines[0].tokens[2].end, Some(2400));
+    }
+
+    #[test]
+    fn nudge_line_shifts_every_timed_token() {
+        let mut session = Session::new(vec![line(&["a", "b"])]);
+        session.press(1000, KeyMode::Tap);
+        session.press(1500, KeyMode::Tap); // a: 1000..1500, b held at 1500
+        session.release(2000); // b: 1500..2000
+        session.selected = Some((0, 0));
+        assert!(session.nudge_line(-200));
+        assert_eq!((session.lines[0].tokens[0].start, session.lines[0].tokens[0].end), (Some(800), Some(1300)));
+        assert_eq!((session.lines[0].tokens[1].start, session.lines[0].tokens[1].end), (Some(1300), Some(1800)));
+        // Never goes negative.
+        assert!(session.nudge_line(-10_000));
+        assert_eq!(session.lines[0].tokens[0].start, Some(0));
     }
 
     #[test]
