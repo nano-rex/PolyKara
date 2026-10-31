@@ -107,6 +107,12 @@ pub fn edit(parent: HWND, id: u16, text: &str, style: u32) -> HWND {
     hwnd
 }
 
+/// Grey placeholder text shown in an empty edit box (kept while it has focus).
+pub fn cue(hwnd: HWND, text: &str) {
+    let wide = wide(text);
+    unsafe { SendMessageW(hwnd, EM_SETCUEBANNER, 1, wide.as_ptr() as LPARAM) };
+}
+
 pub fn multiline(parent: HWND, id: u16, text: &str, read_only: bool) -> HWND {
     let style = ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL | if read_only { ES_READONLY } else { 0 };
     let hwnd = create(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | style, parent, id);

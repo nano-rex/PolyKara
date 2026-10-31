@@ -20,6 +20,8 @@ const ACTIONS: &[(&str, &str, bool)] = &[
     ("Self-test", "selftest", false),
 ];
 const LANGUAGES: &[&str] = &["en", "zh", "yue", "ja", "ko", "ms", "id", "th", "vi", "tl", "hi", "ta", "es", "fr", "de"];
+/// Status filter choices; index 0 shows everything.
+const STATUS_FILTERS: &[&str] = &["All statuses", "Made (has video)", "Still to make"];
 const VOICES: &[&str] = &["", "female", "male", "duet"];
 const DEFAULTS: &[(&str, &str)] = &[("template", "solo"), ("prompt_ms", "1000"), ("align_model", "auto")];
 const COLUMNS: &[(&str, i32)] = &[("Song id", 190), ("Title", 300), ("Singer", 220), ("Language", 80), ("Voice", 80), ("Status", 150)];
@@ -35,6 +37,9 @@ const ID_VIDEOS: u16 = 108;
 const ID_DATA: u16 = 109;
 const ID_YTDLP: u16 = 110;
 const ID_LIST: u16 = 120;
+const ID_SEARCH: u16 = 121;
+const ID_FILTER_LANG: u16 = 122;
+const ID_FILTER_STATUS: u16 = 123;
 const ID_ACTION: u16 = 130;
 const ID_REPROCESS: u16 = 132;
 const ID_REALIGN: u16 = 133;
@@ -67,6 +72,30 @@ const FIELDS: &[(&str, &str, Kind)] = &[
 
 pub fn valid_id(sid: &str) -> bool {
     !sid.is_empty() && sid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Whether a song passes the search text and the language/status filters.
+/// `status` is the filter index: 0 all, 1 made (video exists), 2 still to make.
+fn row_matches(song: &Song, query: &str, language: Option<&str>, status: usize, shared: &Shared) -> bool {
+    if !query.is_empty() {
+        let field = |key: &str| song.get(key).map(|value| value.to_lowercase()).unwrap_or_default();
+        if !(field("id").contains(query) || field("title").contains(query) || field("artist").contains(query)) {
+            return false;
+        }
+    }
+    if let Some(language) = language {
+        if !song.get("language").map(|value| value.eq_ignore_ascii_case(language)).unwrap_or(false) {
+            return false;
+        }
+    }
+    if status != 0 {
+        let sid = song.get("id").map(String::as_str).unwrap_or_default();
+        let made = shared.hello.as_ref().map(|hello| hello.folders.output.join(format!("{sid}.mp4")).exists()).unwrap_or(false);
+        if (status == 1) != made {
+            return false;
+        }
+    }
+    true
 }
 
 pub enum Action {
@@ -186,6 +215,9 @@ impl SongDialog {
 pub struct SongsPage {
     controls: Vec<HWND>,
     toolbar: Vec<HWND>,
+    search: HWND,
+    filter_lang: HWND,
+    filter_status: HWND,
     list: HWND,
     action: HWND,
     reprocess: HWND,
@@ -214,6 +246,14 @@ impl SongsPage {
             (ID_YTDLP, "Update yt-dlp"),
         ];
         let toolbar: Vec<HWND> = names.iter().map(|(id, name)| shared.styled(win::button(main, *id, name))).collect();
+        // Search box and filters above the list; typing or changing a filter refines the list.
+        let search = shared.styled(win::edit(main, ID_SEARCH, "", 0));
+        win::cue(search, "Search id, title or singer");
+        let lang_items: Vec<&str> = std::iter::once("All languages").chain(LANGUAGES.iter().copied()).collect();
+        let filter_lang = shared.styled(win::combo(main, ID_FILTER_LANG, &lang_items, false));
+        win::select(filter_lang, Some(0));
+        let filter_status = shared.styled(win::combo(main, ID_FILTER_STATUS, STATUS_FILTERS, false));
+        win::select(filter_status, Some(0));
         let list = shared.styled(win::create(WS_EX_CLIENTEDGE, "SysListView32", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS, main, ID_LIST));
         win::list_columns(list, &COLUMNS.iter().map(|(name, width)| (*name, shared.px(*width))).collect::<Vec<_>>());
         // A tick box on every row; the action runs on the ticked songs (all songs when none are ticked).
@@ -228,8 +268,8 @@ impl SongsPage {
         win::set_font(log, shared.mono);
         shared.log = log;
         let mut controls = toolbar.clone();
-        controls.extend([list, action, reprocess, realign, run, stop, log]);
-        SongsPage { controls, toolbar, list, action, reprocess, realign, run, stop, log, rows: Vec::new(), dialog: None }
+        controls.extend([search, filter_lang, filter_status, list, action, reprocess, realign, run, stop, log]);
+        SongsPage { controls, toolbar, search, filter_lang, filter_status, list, action, reprocess, realign, run, stop, log, rows: Vec::new(), dialog: None }
     }
 
     pub fn show(&self, visible: bool) {
@@ -250,9 +290,14 @@ impl SongsPage {
             win::place(*button, left, y + px(2), wide, px(28));
             left += wide + px(4);
         }
+        // Search box and filters sit on their own row between the toolbar and the list.
+        let search_top = y + px(34);
+        win::place(self.search, x, search_top, px(240), px(26));
+        win::place(self.filter_lang, x + px(248), search_top, px(150), px(300));
+        win::place(self.filter_status, x + px(404), search_top, px(180), px(300));
         let log_height = (height * 38 / 100).max(px(120));
         let controls_top = y + height - log_height - px(36);
-        let list_top = y + px(36);
+        let list_top = y + px(68);
         win::place(self.list, x, list_top, width, controls_top - list_top - px(6));
         // Title and singer share what the fixed columns leave.
         let fixed: i32 = [0usize, 3, 4, 5].iter().map(|index| px(COLUMNS[*index].1)).sum();
@@ -279,7 +324,11 @@ impl SongsPage {
     pub fn fill(&mut self, shared: &Shared) {
         let chosen: HashSet<String> = self.selected();
         let ticked: HashSet<String> = self.checked_set();
-        let songs = shared.visible_songs();
+        // Narrow the list by the search text and the language/status filters.
+        let query = win::text(self.search).trim().to_lowercase();
+        let language = win::selection(self.filter_lang).and_then(|index| index.checked_sub(1)).and_then(|index| LANGUAGES.get(index)).map(|lang| lang.to_string());
+        let status = win::selection(self.filter_status).unwrap_or(0);
+        let songs: Vec<&Song> = shared.visible_songs().into_iter().filter(|song| row_matches(song, &query, language.as_deref(), status, shared)).collect();
         self.rows = songs.iter().map(|song| song.get("id").cloned().unwrap_or_default()).collect();
         let cell = |song: &Song, key: &str| song.get(key).cloned().unwrap_or_default();
         let table: Vec<Vec<String>> = songs.iter().map(|song| {
@@ -489,6 +538,11 @@ impl SongsPage {
     }
 
     pub fn command(&mut self, id: u16, code: u32, shared: &mut Shared) -> Option<Action> {
+        // Typing in the search box or changing a filter re-filters the list.
+        if (id == ID_SEARCH && code == EN_CHANGE) || ((id == ID_FILTER_LANG || id == ID_FILTER_STATUS) && code == CBN_SELCHANGE) {
+            self.fill(shared);
+            return None;
+        }
         if code != BN_CLICKED {
             return None;
         }

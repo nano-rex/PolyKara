@@ -289,6 +289,7 @@ pub const EM_SETSEL: u32 = 0x00B1;
 pub const EM_SCROLLCARET: u32 = 0x00B7;
 pub const EM_REPLACESEL: u32 = 0x00C2;
 pub const EM_SETLIMITTEXT: u32 = 0x00C5;
+pub const EM_SETCUEBANNER: u32 = 0x1501;
 pub const EN_SETFOCUS: u32 = 0x0100;
 pub const EN_CHANGE: u32 = 0x0300;
 pub const SS_LEFT: u32 = 0x0000;
