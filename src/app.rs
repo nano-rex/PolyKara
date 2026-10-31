@@ -15,6 +15,7 @@ use polykara::tools::Wake;
 use crate::editor::{AfterSave, EditorPage};
 use crate::settings::SettingsWindow;
 use crate::songs::SongsPage;
+use crate::toolspane::{ToolsOutcome, ToolsPage};
 use crate::win::{self, ffi::*};
 
 pub type Song = HashMap<String, String>;
@@ -327,6 +328,7 @@ impl Shared {
 pub enum Tab {
     Songs,
     Editor,
+    Tools,
 }
 
 pub struct App {
@@ -336,6 +338,7 @@ pub struct App {
     tab: Tab,
     songs: SongsPage,
     editor: EditorPage,
+    tools: ToolsPage,
     settings: Option<SettingsWindow>,
     options: Options,
     /// Quit once the timing being saved is written.
@@ -392,11 +395,13 @@ impl App {
         let tabs = shared.styled(win::child("SysTabControl32", "", WS_CLIPSIBLINGS | WS_TABSTOP, main, ID_TABS));
         win::add_tab(tabs, 0, "   Songs   ");
         win::add_tab(tabs, 1, "   Subtitle editor   ");
+        win::add_tab(tabs, 2, "   Tools   ");
         let settings_button = shared.styled(win::button(main, ID_SETTINGS, "Settings"));
         let songs = SongsPage::create(&mut shared);
         let editor = EditorPage::create(&mut shared);
+        let tools = ToolsPage::create(&mut shared);
         unsafe { SetTimer(main, POLL_TIMER, 100, std::ptr::null()) };
-        let mut app = App { shared, tabs, settings_button, tab: Tab::Songs, songs, editor, settings: None, options, quit_after_save: false };
+        let mut app = App { shared, tabs, settings_button, tab: Tab::Songs, songs, editor, tools, settings: None, options, quit_after_save: false };
         app.show_tab(Tab::Songs);
         app.layout();
         app
@@ -404,9 +409,10 @@ impl App {
 
     fn show_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        win::set_tab(self.tabs, if tab == Tab::Songs { 0 } else { 1 });
+        win::set_tab(self.tabs, match tab { Tab::Songs => 0, Tab::Editor => 1, Tab::Tools => 2 });
         self.songs.show(tab == Tab::Songs);
         self.editor.show(tab == Tab::Editor);
+        self.tools.show(tab == Tab::Tools);
         if tab == Tab::Editor {
             self.editor.focus();
         }
@@ -422,6 +428,7 @@ impl App {
         let (top, bottom) = (shared.px(4) + tab_height + shared.px(4), height - status_height);
         self.songs.layout(shared, gap, top, width - 2 * gap, bottom - top);
         self.editor.layout(shared, gap, top, width - 2 * gap, bottom - top);
+        self.tools.layout(shared, gap, top, width - 2 * gap, bottom - top);
     }
 
     fn open_settings(&mut self) {
@@ -617,14 +624,19 @@ impl App {
                         crate::songs::Action::TimeLyrics(sid) => self.open_in_editor(&sid),
                     }
                 } else {
-                    self.editor.command(id, code, &mut self.shared);
+                    match self.tools.command(id, code, &mut self.shared) {
+                        ToolsOutcome::Ignored => self.editor.command(id, code, &mut self.shared),
+                        // The run's output shows in the Songs-tab log.
+                        ToolsOutcome::Ran => self.show_tab(Tab::Songs),
+                        ToolsOutcome::Handled => {}
+                    }
                 }
                 self.after();
             }
             WM_NOTIFY => {
                 let header = unsafe { &*(lparam as *const NMHDR) };
                 if header.hwndFrom == self.tabs && header.code == TCN_SELCHANGE {
-                    let tab = if win::current_tab(self.tabs) == 0 { Tab::Songs } else { Tab::Editor };
+                    let tab = match win::current_tab(self.tabs) { 0 => Tab::Songs, 1 => Tab::Editor, _ => Tab::Tools };
                     self.show_tab(tab);
                 } else {
                     self.songs.notify(header, &mut self.shared);

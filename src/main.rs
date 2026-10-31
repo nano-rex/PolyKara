@@ -11,6 +11,7 @@ mod app;
 mod editor;
 mod settings;
 mod songs;
+mod toolspane;
 mod win;
 
 fn main() {

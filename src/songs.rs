@@ -16,8 +16,6 @@ const ACTIONS: &[(&str, &str, bool)] = &[
     ("Render videos only", "render", true),
     ("Check lyrics accuracy", "verify", true),
     ("Status report", "qa", true),
-    ("Check tools", "check", false),
-    ("Self-test", "selftest", false),
 ];
 const LANGUAGES: &[&str] = &["en", "zh", "yue", "ja", "ko", "ms", "id", "th", "vi", "tl", "hi", "ta", "es", "fr", "de"];
 /// Status filter choices; index 0 shows everything.
@@ -33,9 +31,6 @@ const ID_REMOVE: u16 = 104;
 const ID_TIME: u16 = 105;
 const ID_EDIT_ASS: u16 = 106;
 const ID_PLAY: u16 = 107;
-const ID_VIDEOS: u16 = 108;
-const ID_DATA: u16 = 109;
-const ID_YTDLP: u16 = 110;
 const ID_LIST: u16 = 120;
 const ID_SEARCH: u16 = 121;
 const ID_FILTER_LANG: u16 = 122;
@@ -241,9 +236,6 @@ impl SongsPage {
             (ID_TIME, "Edit lyrics"),
             (ID_EDIT_ASS, "Edit ASS file"),
             (ID_PLAY, "Play video"),
-            (ID_VIDEOS, "Open videos folder"),
-            (ID_DATA, "Open data folder"),
-            (ID_YTDLP, "Update yt-dlp"),
         ];
         let toolbar: Vec<HWND> = names.iter().map(|(id, name)| shared.styled(win::button(main, *id, name))).collect();
         // Search box and filters above the list; typing or changing a filter refines the list.
@@ -286,7 +278,7 @@ impl SongsPage {
         for (index, button) in self.toolbar.iter().enumerate() {
             let text = win::text(*button);
             let wide = win::measure_with(*button, shared.font, &text).0 + px(22);
-            if index == 4 || index == 9 {
+            if index == 4 {
                 left += px(12);
             }
             win::place(*button, left, y + px(2), wide, px(28));
@@ -586,24 +578,6 @@ impl SongsPage {
                     Some(video) if video.is_file() => win::open_path(&video),
                     _ => shared.info("Select one song whose video is ready."),
                 }
-            }
-            ID_VIDEOS => {
-                if let Some(hello) = &shared.hello {
-                    std::fs::create_dir_all(&hello.folders.output).ok();
-                    win::open_path(&hello.folders.output);
-                }
-            }
-            ID_DATA => {
-                if let Some(hello) = &shared.hello {
-                    win::open_path(&hello.home);
-                }
-            }
-            ID_YTDLP => {
-                let program = shared.tool("yt-dlp");
-                let mut command = std::process::Command::new(&program);
-                command.arg("-U");
-                polykara::tools::quiet(&mut command);
-                shared.start_command(command, format!("{} -U", program.display()));
             }
             ID_RUN => self.run_action(shared),
             ID_STOP => {
