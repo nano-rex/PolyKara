@@ -542,3 +542,8 @@ extern "system" {
 extern "system" {
     pub fn GetModuleHandleW(name: *const u16) -> HINSTANCE;
 }
+
+#[cfg_attr(windows, link(name = "uxtheme"))]
+extern "system" {
+    pub fn SetWindowTheme(hwnd: HWND, sub_app_name: *const u16, sub_id_list: *const u16) -> i32;
+}

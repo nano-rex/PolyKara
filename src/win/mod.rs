@@ -113,6 +113,12 @@ pub fn cue(hwnd: HWND, text: &str) {
     unsafe { SendMessageW(hwnd, EM_SETCUEBANNER, 1, wide.as_ptr() as LPARAM) };
 }
 
+/// Give a control a named visual style, e.g. "Explorer" for a modern list view.
+pub fn window_theme(hwnd: HWND, app: &str) {
+    let app = wide(app);
+    unsafe { SetWindowTheme(hwnd, app.as_ptr(), null()) };
+}
+
 pub fn multiline(parent: HWND, id: u16, text: &str, read_only: bool) -> HWND {
     let style = ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL | if read_only { ES_READONLY } else { 0 };
     let hwnd = create(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | style, parent, id);

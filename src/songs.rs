@@ -258,6 +258,8 @@ impl SongsPage {
         win::list_columns(list, &COLUMNS.iter().map(|(name, width)| (*name, shared.px(*width))).collect::<Vec<_>>());
         // A tick box on every row; the action runs on the ticked songs (all songs when none are ticked).
         win::list_checkboxes(list);
+        // Modern list styling (hover and selection) where visual styles are active.
+        win::window_theme(list, "Explorer");
         let action = shared.styled(win::combo(main, ID_ACTION, &ACTIONS.iter().map(|(label, _, _)| *label).collect::<Vec<_>>(), false));
         win::select(action, Some(0));
         let reprocess = shared.styled(win::checkbox(main, ID_REPROCESS, "Redo finished work"));
