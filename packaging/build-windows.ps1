@@ -26,6 +26,32 @@ if ($Stage -ne "installer") {
     & "$PSScriptRoot\fetch-data.ps1" -OutDir "$build\data" -BinDir "$build\bin" -ModelDir "$build\models"
     if ($LASTEXITCODE -ne 0) { throw "fetch-data failed" }
 
+    # Vocal separator for `generate`: stems.cpp (HTDemucs v4 on ggml, MIT), built from
+    # source with Visual Studio, plus its GGUF model. Best-effort: a separator build
+    # problem warns but never blocks the installer (Generate lyrics then needs a
+    # separator on PATH). Set POLYKARA_SKIP_SEPARATOR=1 to skip it.
+    if (-not $env:POLYKARA_SKIP_SEPARATOR) {
+        try {
+            $stems = Join-Path $build "stems.cpp"
+            git clone --recurse-submodules https://github.com/tinycrops/stems.cpp $stems
+            if ($LASTEXITCODE -ne 0) { throw "git clone stems.cpp failed" }
+            Push-Location $stems
+            try { & cmd /c "build.cmd cpu"; $built = $LASTEXITCODE } finally { Pop-Location }
+            if ($built -ne 0) { throw "stems.cpp build.cmd failed ($built)" }
+            $exe = Join-Path $stems "build\bin\Release\stems-split.exe"
+            if (-not (Test-Path $exe)) { throw "stems-split.exe not found at $exe" }
+            Copy-Item $exe "$build\bin"
+            # Any runtime DLLs the build placed beside it (ggml backends, stems.dll).
+            Get-ChildItem "$stems\build\bin\Release" -Filter *.dll -ErrorAction SilentlyContinue | Copy-Item -Destination "$build\bin"
+            Copy-Item "$stems\LICENSE" "$build\bin\STEMS-LICENSE.txt" -ErrorAction SilentlyContinue
+            # The HTDemucs GGUF model (a re-encode of demucs' MIT checkpoints).
+            Invoke-WebRequest "https://github.com/tinycrops/stems.cpp/releases/download/models-v1/htdemucs-f32.gguf" -OutFile "$build\models\htdemucs-f32.gguf"
+            Write-Host "stems.cpp separator bundled ($((Get-Item "$build\bin\stems-split.exe").Length) bytes)"
+        } catch {
+            Write-Warning "separator (stems.cpp) not bundled: $_. 'Generate lyrics' will need a separator on PATH."
+        }
+    }
+
     # First-run defaults copied to Documents\PolyKara.
     Copy-Item "$root\songs.csv", "$root\polykara.toml" "$build\defaults"
 

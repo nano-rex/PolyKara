@@ -155,12 +155,12 @@ num_workers = 1
 
 [separation]
 # Vocal/instrument separation for `generate` (UVR-style). PolyKara shells out to a
-# bundled separator, the way it uses ffmpeg and whisper.cpp. Leave these empty to use
-# the bundled program and model; set them to use your own.
+# bundled separator (stems.cpp — HTDemucs on ggml), the way it uses ffmpeg and
+# whisper.cpp. Leave these empty to use the bundled program and model.
 # program = ""      # the separator program; found next to PolyKara or on PATH by default
-# model_path = ""   # the folder holding the separation model
+# model_path = ""   # the model file; empty finds htdemucs-f32.gguf in the models folder
 # args = ""         # argument template; placeholders {model} {input} {output_dir}
-#                   # (empty uses: [model] <input> <output_dir>, as demucs.cpp.main expects)
+#                   # empty uses stems.cpp's flags: -m {model} -i {input} -o {output_dir} --two-stems vocals
 
 [timing]
 long_pause_ms = 10000
