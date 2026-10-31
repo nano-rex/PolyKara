@@ -35,7 +35,6 @@ const ID_DATA: u16 = 109;
 const ID_YTDLP: u16 = 110;
 const ID_LIST: u16 = 120;
 const ID_ACTION: u16 = 130;
-const ID_SELECTED_ONLY: u16 = 131;
 const ID_REPROCESS: u16 = 132;
 const ID_REALIGN: u16 = 133;
 const ID_RUN: u16 = 134;
@@ -188,7 +187,6 @@ pub struct SongsPage {
     toolbar: Vec<HWND>,
     list: HWND,
     action: HWND,
-    selected_only: HWND,
     reprocess: HWND,
     realign: HWND,
     run: HWND,
@@ -217,9 +215,10 @@ impl SongsPage {
         let toolbar: Vec<HWND> = names.iter().map(|(id, name)| shared.styled(win::button(main, *id, name))).collect();
         let list = shared.styled(win::create(WS_EX_CLIENTEDGE, "SysListView32", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS, main, ID_LIST));
         win::list_columns(list, &COLUMNS.iter().map(|(name, width)| (*name, shared.px(*width))).collect::<Vec<_>>());
+        // A tick box on every row; the action runs on the ticked songs (all songs when none are ticked).
+        win::list_checkboxes(list);
         let action = shared.styled(win::combo(main, ID_ACTION, &ACTIONS.iter().map(|(label, _, _)| *label).collect::<Vec<_>>(), false));
         win::select(action, Some(0));
-        let selected_only = shared.styled(win::checkbox(main, ID_SELECTED_ONLY, "Selected songs only"));
         let reprocess = shared.styled(win::checkbox(main, ID_REPROCESS, "Redo finished work"));
         let realign = shared.styled(win::checkbox(main, ID_REALIGN, "Redo word timing"));
         let run = shared.styled(win::child("BUTTON", "Run", WS_TABSTOP | BS_DEFPUSHBUTTON, main, ID_RUN));
@@ -228,8 +227,8 @@ impl SongsPage {
         win::set_font(log, shared.mono);
         shared.log = log;
         let mut controls = toolbar.clone();
-        controls.extend([list, action, selected_only, reprocess, realign, run, stop, log]);
-        SongsPage { controls, toolbar, list, action, selected_only, reprocess, realign, run, stop, log, rows: Vec::new(), dialog: None }
+        controls.extend([list, action, reprocess, realign, run, stop, log]);
+        SongsPage { controls, toolbar, list, action, reprocess, realign, run, stop, log, rows: Vec::new(), dialog: None }
     }
 
     pub fn show(&self, visible: bool) {
@@ -261,7 +260,7 @@ impl SongsPage {
         win::list_width(self.list, 2, spare * 45 / 100);
         win::place(self.action, x, controls_top + px(3), px(240), px(300));
         let mut left = x + px(252);
-        for check in [self.selected_only, self.reprocess, self.realign] {
+        for check in [self.reprocess, self.realign] {
             let wide = win::measure_with(check, shared.font, &win::text(check)).0 + px(30);
             win::place(check, left, controls_top + px(4), wide, px(24));
             left += wide + px(8);
@@ -278,6 +277,7 @@ impl SongsPage {
     /// Fill the table from the song list, keeping the selection.
     pub fn fill(&mut self, shared: &Shared) {
         let chosen: HashSet<String> = self.selected();
+        let ticked: HashSet<String> = self.checked_set();
         let songs = shared.visible_songs();
         self.rows = songs.iter().map(|song| song.get("id").cloned().unwrap_or_default()).collect();
         let cell = |song: &Song, key: &str| song.get(key).cloned().unwrap_or_default();
@@ -287,6 +287,7 @@ impl SongsPage {
         }).collect();
         win::list_fill(self.list, &table);
         self.select_ids(&chosen);
+        self.check_ids(&ticked);
     }
 
     pub fn update_states(&self, shared: &Shared) {
@@ -314,6 +315,21 @@ impl SongsPage {
         win::list_select(self.list, &rows);
     }
 
+    /// The song ids whose row is ticked, in list order.
+    fn checked_ids(&self) -> Vec<String> {
+        win::list_checked(self.list).into_iter().filter_map(|row| self.rows.get(row).cloned()).collect()
+    }
+
+    fn checked_set(&self) -> HashSet<String> {
+        self.checked_ids().into_iter().collect()
+    }
+
+    /// Tick exactly the rows whose song id is in `ids`.
+    fn check_ids(&self, ids: &HashSet<String>) {
+        let rows: Vec<usize> = self.rows.iter().enumerate().filter(|(_, sid)| ids.contains(*sid)).map(|(row, _)| row).collect();
+        win::list_check(self.list, &rows);
+    }
+
     fn one_selected(&self, shared: &Shared, what: &str) -> Option<String> {
         let chosen = self.selected();
         if chosen.len() == 1 {
@@ -327,7 +343,12 @@ impl SongsPage {
     /// Songs added from media files: select them and say what to check.
     pub fn added(&mut self, value: &Value, chosen: usize, shared: &Shared) {
         let added = value.get("added").strings();
-        self.select_ids(&added.iter().cloned().collect());
+        let added_set: HashSet<String> = added.iter().cloned().collect();
+        self.select_ids(&added_set);
+        // Tick the new songs (on top of any already ticked) so they are ready to run on.
+        let mut ticks = self.checked_set();
+        ticks.extend(added_set);
+        self.check_ids(&ticks);
         let skipped = chosen.saturating_sub(added.len());
         let note = if skipped > 0 { format!("\n{skipped} file(s) were already in the list.") } else { String::new() };
         if added.is_empty() {
@@ -437,19 +458,12 @@ impl SongsPage {
 
     fn run_action(&self, shared: &mut Shared) {
         let (_, command, takes_ids) = ACTIONS[win::selection(self.action).unwrap_or(0).min(ACTIONS.len() - 1)];
-        let selected_only = win::checked(self.selected_only);
-        let ids: Vec<String> = if selected_only {
-            let chosen: Vec<String> = self.rows.iter().filter(|sid| self.selected().contains(*sid)).cloned().collect();
-            if chosen.is_empty() {
-                shared.info("Select the songs to work on, or untick 'Selected songs only'.");
-                return;
-            }
-            chosen
-        } else {
-            self.rows.clone()
-        };
+        let ticked = self.checked_ids();
+        // No ticks means the whole list; the command then runs without ids.
+        let whole = ticked.is_empty();
+        let ids: Vec<String> = if whole { self.rows.clone() } else { ticked };
         let mut args = vec![command.to_string()];
-        if takes_ids && selected_only {
+        if takes_ids && !whole {
             args.extend(ids.iter().cloned());
         }
         if win::checked(self.reprocess) && ["download", "render", "process"].contains(&command) {
@@ -491,8 +505,10 @@ impl SongsPage {
             }
             ID_EDIT => self.edit_song(shared),
             ID_REMOVE => {
-                let chosen = self.selected();
-                if !chosen.is_empty() && win::confirm(shared.main, &format!("Remove {} song(s) from the list? Downloaded files and videos are kept.", chosen.len())) {
+                let chosen = self.checked_set();
+                if chosen.is_empty() {
+                    shared.info("Tick the songs you want to remove.");
+                } else if win::confirm(shared.main, &format!("Remove {} song(s) from the list? Downloaded files and videos are kept.", chosen.len())) {
                     shared.songs.retain(|song| !matches!(song.get("id"), Some(sid) if chosen.contains(sid)));
                     shared.save_songs();
                 }

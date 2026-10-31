@@ -612,6 +612,40 @@ pub fn list_set(hwnd: HWND, row: usize, column: usize, text: &str) {
     unsafe { SendMessageW(hwnd, LVM_SETITEMTEXTW, row, &item as *const LVITEMW as LPARAM) };
 }
 
+pub fn list_count(hwnd: HWND) -> usize {
+    unsafe { SendMessageW(hwnd, LVM_GETITEMCOUNT, 0, 0).max(0) as usize }
+}
+
+/// Turn on the per-row tick boxes of a report list.
+pub fn list_checkboxes(hwnd: HWND) {
+    unsafe { SendMessageW(hwnd, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_CHECKBOXES, LVS_EX_CHECKBOXES as LPARAM) };
+}
+
+/// Whether the row's box is ticked. The check is state image index 2, unticked is 1.
+pub fn list_is_checked(hwnd: HWND, row: usize) -> bool {
+    let state = unsafe { SendMessageW(hwnd, LVM_GETITEMSTATE, row, LVIS_STATEIMAGEMASK as LPARAM) } as u32;
+    (state & LVIS_STATEIMAGEMASK) >> 12 == 2
+}
+
+/// The rows whose box is ticked.
+pub fn list_checked(hwnd: HWND) -> Vec<usize> {
+    (0..list_count(hwnd)).filter(|row| list_is_checked(hwnd, *row)).collect()
+}
+
+/// Tick exactly these rows and clear the rest.
+pub fn list_check(hwnd: HWND, rows: &[usize]) {
+    let set: std::collections::HashSet<usize> = rows.iter().copied().collect();
+    let mut none = Vec::new();
+    for row in 0..list_count(hwnd) {
+        let mut item = list_item(row, 0, &mut none);
+        item.mask = LVIF_STATE;
+        item.stateMask = LVIS_STATEIMAGEMASK;
+        // State image index 2 = ticked, 1 = unticked, shifted into the high bits.
+        item.state = if set.contains(&row) { 2 << 12 } else { 1 << 12 };
+        unsafe { SendMessageW(hwnd, LVM_SETITEMSTATE, row, &item as *const LVITEMW as LPARAM) };
+    }
+}
+
 pub fn list_selected(hwnd: HWND) -> Vec<usize> {
     let mut found = Vec::new();
     let mut at: isize = -1;
