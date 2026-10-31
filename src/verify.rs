@@ -136,7 +136,7 @@ pub fn candidates(row: &Row) -> Result<Vec<(String, String, Kind, PathBuf)>, Str
     let edited = paths().lyrics.join(format!("{sid}.timed.lrc"));
     if edited.exists() {
         // Timing made in the timing editor outranks every other source.
-        found.push(("editor".to_string(), "timing editor".to_string(), Kind::Lrc, edited));
+        found.push(("editor".to_string(), "subtitle editor".to_string(), Kind::Lrc, edited));
     }
     let raw = get(row, "lyrics_file");
     if !raw.is_empty() {

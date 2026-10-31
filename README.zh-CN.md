@@ -8,7 +8,7 @@
 
 从 Releases 页面（或 Actions 中 **Windows installer** 的产物 `PolyKara-Setup`）下载 `PolyKara-Setup-<版本>.exe` 并运行即可，无需另外安装任何依赖：程序自带 ffmpeg、ffprobe、ffplay、yt-dlp、whisper.cpp 与 Whisper 模型（CPU 对轴），以及读音和罗马音所需的词典数据。安装到当前用户的 `%LOCALAPPDATA%\Programs\PolyKara`，不需要管理员权限。
 
-- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Edit lyrics** 在 **Timing editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、布局和特效、标题和制作人员、视频、歌词搜索、播放器等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
+- 开始菜单中的 **PolyKara** 打开图形界面：用 **Add song** 添加歌曲（视频网址、歌名、歌手、作曲、作词、语言、声部颜色），选择 **Make videos (all steps)** 后按 **Run**。日志与命令行输出相同。运行时，歌曲列表的状态栏会把待处理的歌曲标为 queued，并显示每首歌正在进行的步骤（下载、对轴、渲染……）。**Edit lyrics** 在 **Subtitle editor** 页中打开选中的歌曲（见下文），**Edit ASS file** 用 Aegisub（或关联 `.ass` 的程序）打开字幕，**Settings** 以表单显示 `polykara.toml`（歌词、读音、布局和特效、标题和制作人员、视频、歌词搜索、播放器等分页，提供勾选框、下拉选项、字体列表和取色器，鼠标指向设置时显示说明；保存时只改动修改过的值并保留注释，**Advanced (file)** 页仍可直接编辑文本），YouTube 下载失败时用 **Update yt-dlp** 更新。
 - 窗口是用 Rust 编写的原生 Windows 程序（`src/`，不使用任何第三方库），启动快、播放时不卡顿；歌词、读音和设置文件由与命令行相同的 Rust 代码处理（`polykara-cli.exe engine`）。
 - 歌曲列表、设置和工作文件保存在 `文档\PolyKara`，完成的视频在 `文档\PolyKara\work\output`。
 - **PolyKara command line** 打开 `polykara-cli.exe` 命令行，命令见下文；`polykara-cli.exe selftest` 用自带工具渲染测试画面并检查缺失项。
@@ -86,7 +86,7 @@ polykara-cli render --reprocess
 
 ### 歌词准确性检查
 
-每个来源的歌词都单独保存为一个文件，以便互相比对。可信度顺序：在 Timing editor 中保存的时间轴（`work/lyrics/<id>.timed.lrc`）→ `songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt` 或纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → LRCLIB 同步歌词（`work/lyrics/<id>.lrclib.lrc`）→ 网易云音乐同步歌词（`<id>.netease.lrc`）→ 歌曲语言的 YouTube 自动字幕 → LRCLIB、Lyrics.ovh 和各个 `lyric_pages` 网页的纯文本歌词（`<id>.<来源>.txt`）。
+每个来源的歌词都单独保存为一个文件，以便互相比对。可信度顺序：在 Subtitle editor 中保存的时间轴（`work/lyrics/<id>.timed.lrc`）→ `songs.csv` 中的 `lyrics_file`（`.lrc`、`.srt`、`.vtt` 或纯文本 `.txt`）→ 上传者制作的 YouTube 字幕 → LRCLIB 同步歌词（`work/lyrics/<id>.lrclib.lrc`）→ 网易云音乐同步歌词（`<id>.netease.lrc`）→ 歌曲语言的 YouTube 自动字幕 → LRCLIB、Lyrics.ovh 和各个 `lyric_pages` 网页的纯文本歌词（`<id>.<来源>.txt`）。
 
 一首歌至少需要 3 个可用的歌词文件才能进行可靠的准确性检查。下载步骤先查询歌词来源，文件仍不足时才请求 YouTube 字幕。如果仍然不足，请在 `songs.csv` 中添加 `lyrics_file` 或 `lyric_pages`（多个网址用 `|` 分隔）。
 
@@ -110,7 +110,7 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 
 非拉丁文字的歌词会在原文上方显示一行读音：中文为拼音，日文为罗马字，其他文字同理；`[romanization] margin_v` 设置这一行的高度。中文普通话使用带声调符号的拼音，如 `nǐ hǎo`（内置拼音数据；设置 `tone = "numbers"` 可改为 `ni3 hao3`），粤语（`language` 为 `yue` 或 `zh-hk`）使用粤拼（内置粤拼词典），日文使用平文式罗马字（内置 Hepburn 词典），韩文使用内置的韩语罗马字标记法，印度文字使用内置 ITRANS，西里尔、希腊、泰文等其他文字使用内置转写。词典由 `packaging/fetch-data.ps1` 下载到 `data/`；缺少数据文件时该行只显示原文。日文读音基于词典，对人名和部分汉字可能有误，可以加入下面的读音词库。
 
-**读音词库**：引擎会读错部分词（拼音数据把“重来”读成 zhòng lái、“睡不着”读成 shuì bù zhe，日文词典把“君”读成 kun）。PolyKara 自带常见易错词的词库（`readings/zh.txt`、`ja.txt`、`yue.txt`），你自己的词放在 `<PolyKara 文件夹>/readings/<语言>.txt`（Windows 程序为 `文档\PolyKara\readings`），同一个词以你的为准；长词优先，所以“重来”可以是 chóng lái 而单独的“重”仍由引擎判断；“慢慢地”这类叠词后的“地”读 de。格式：普通话每个字一个音节（`重来 chóng lái` 或 `重来 chong2 lai2`），粤语每字一个粤拼（`銀行 ngan4 hong4`），日文写整个词的假名或罗马字（`君 きみ`）。在 Timing editor 页按 **Word readings…** 可以查看本曲每个字的读音并一键加入新词；编辑器预览会把读音显示在字的上方，下次 **Make subtitles** 时生效。请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
+**读音词库**：引擎会读错部分词（拼音数据把“重来”读成 zhòng lái、“睡不着”读成 shuì bù zhe，日文词典把“君”读成 kun）。PolyKara 自带常见易错词的词库（`readings/zh.txt`、`ja.txt`、`yue.txt`），你自己的词放在 `<PolyKara 文件夹>/readings/<语言>.txt`（Windows 程序为 `文档\PolyKara\readings`），同一个词以你的为准；长词优先，所以“重来”可以是 chóng lái 而单独的“重”仍由引擎判断；“慢慢地”这类叠词后的“地”读 de。格式：普通话每个字一个音节（`重来 chóng lái` 或 `重来 chong2 lai2`），粤语每字一个粤拼（`銀行 ngan4 hong4`），日文写整个词的假名或罗马字（`君 きみ`）。在 Subtitle editor 页按 **Word readings…** 可以查看本曲每个字的读音并一键加入新词；编辑器预览会把读音显示在字的上方，下次 **Make subtitles** 时生效。请为这些歌曲使用含中日韩字形的字体，例如 `Noto Sans CJK SC`。
 
 长于 30 秒的无人声间隔会在最后三秒显示 `.`, `..`, `...`，每秒一个状态，位置在下一句歌词上方并左对齐。未标记歌词默认为蓝色；最多支持 16 位演唱者：
 
@@ -126,9 +126,9 @@ Logo 可在 `polykara.toml` 的 `[logo]` 中统一设置，或在 `songs.csv` �
 
 `[effects] preset` 为每个字加特效：`none`、`fade`、`pop` 或 `glow`；也可以在 `syllable` 和 `line` 中写自己的 ASS 标签，`{start}` `{mid}` `{end}` `{dur}` `{index}` 为相对该行的毫秒数，`[effects.params]` 中的键也可使用。其他比例的视频会用模糊放大的画面填满 1920x1080（`[render] fit = "blur"`，`"pad"` 为黑边，`"none"` 保持原样）。
 
-## 手动对轴（Timing editor）
+## 手动对轴（Subtitle editor）
 
-窗口中的 **Timing editor** 页可以边播放歌曲边手动对轴，用法类似傻丫头字幕精灵（Sayatoo）。自动对轴不准，或网上找不到歌词时（用 **Lyrics text…** 粘贴歌词）都可以使用。
+窗口中的 **Subtitle editor** 页可以边播放歌曲边手动对轴，用法类似傻丫头字幕精灵（Sayatoo）。自动对轴不准，或网上找不到歌词时（用 **Lyrics text…** 粘贴歌词）都可以使用。
 
 1. 在 **Songs** 页选中一首已下载的歌曲，按 **Edit lyrics**（或在编辑器的歌曲列表中选择）。编辑器会先提取一次音频并画出波形。
 2. 按 **Enter** 播放。高亮的字（中日韩文为一个字，其他语言为一个词）就是下一个要对的字。唱到它时**按住空格**：按下为开始，松开为结束。**Tap** 模式下每按一次就开始下一个字，同时结束上一个字。唱得太快时可以用 **Speed** 放慢；总是按晚的话可以设置 **Reaction delay**。

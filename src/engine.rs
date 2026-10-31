@@ -28,12 +28,27 @@ impl Cli {
         if let Some(program) = std::env::var_os("POLYKARA_CLI") {
             return Some(Cli { program: program.into(), prefix: Vec::new() });
         }
-        let exe = std::env::current_exe().ok()?;
-        let folder = exe.parent()?.to_path_buf();
         let name = if cfg!(windows) { "polykara-cli.exe" } else { "polykara-cli" };
-        let program = folder.join(name);
-        if program.is_file() {
-            return Some(Cli { program, prefix: Vec::new() });
+        // Beside this program, in a bin/ subfolder, or in any ancestor folder.
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(folder) = exe.parent() {
+                for place in folder.ancestors() {
+                    for candidate in [place.join(name), place.join("bin").join(name)] {
+                        if candidate.is_file() {
+                            return Some(Cli { program: candidate, prefix: Vec::new() });
+                        }
+                    }
+                }
+            }
+        }
+        // A copy on PATH, as a last resort.
+        if let Some(paths) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&paths) {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return Some(Cli { program: candidate, prefix: Vec::new() });
+                }
+            }
         }
         None
     }

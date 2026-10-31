@@ -262,7 +262,7 @@ impl Shared {
         let cli = match self.cli.clone() {
             Some(cli) => cli,
             None => {
-                self.warn("The PolyKara command line (polykara-cli) was not found next to this program.");
+                self.warn("polykara-cli.exe was not found. It must sit in the same folder as PolyKara.exe (or on PATH). If you unzipped a build, keep both files together; otherwise reinstall PolyKara.");
                 return false;
             }
         };
@@ -361,7 +361,7 @@ impl App {
         let home = std::env::var_os("POLYKARA_HOME").map(PathBuf::from);
         let mut engine = Engine::start(cli.as_ref().unwrap_or(&Cli { program: "polykara-cli".into(), prefix: Vec::new() }), home.as_deref(), wake.clone());
         if cli.is_none() && engine.failure.is_some() {
-            engine.failure = Some("The PolyKara command line (polykara-cli) was not found next to this program. Reinstall PolyKara.".into());
+            engine.failure = Some("polykara-cli.exe was not found. It must sit in the same folder as PolyKara.exe (or on PATH). If you unzipped a build, keep both files together; otherwise reinstall PolyKara.".into());
         }
         engine.ask("hello", Value::object::<&str>(vec![]), Want::Hello);
         let status = win::label(main, "Starting…");
@@ -391,7 +391,7 @@ impl App {
         shared.styled(status);
         let tabs = shared.styled(win::child("SysTabControl32", "", WS_CLIPSIBLINGS | WS_TABSTOP, main, ID_TABS));
         win::add_tab(tabs, 0, "   Songs   ");
-        win::add_tab(tabs, 1, "   Timing editor   ");
+        win::add_tab(tabs, 1, "   Subtitle editor   ");
         let settings_button = shared.styled(win::button(main, ID_SETTINGS, "Settings"));
         let songs = SongsPage::create(&mut shared);
         let editor = EditorPage::create(&mut shared);

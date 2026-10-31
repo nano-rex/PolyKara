@@ -12,7 +12,7 @@ PolyKara separates repeatable CLI processing from final GUI adjustments. It prod
 
 Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or from the **Windows installer** workflow run under Actions (artifact `PolyKara-Setup`), and run it. Nothing else needs to be installed: the app carries ffmpeg, ffprobe, ffplay, yt-dlp, whisper.cpp with a Whisper model (word timing on the CPU), and the dictionaries behind readings and romanization. It installs for the current user, without admin rights, into `%LOCALAPPDATA%\Programs\PolyKara`.
 
-- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Use the search box and the language and status filters above the list to find songs. Tick the box on each song's row to choose which songs to work on, choose **Make videos (all steps)** and press **Run** — the action runs on the ticked songs, or on every song when none are ticked. **Remove** deletes the ticked songs from the list. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Edit lyrics** opens the selected song in the **Timing editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, layout and effects, title and credits, video, lyric search, and the player, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
+- **PolyKara** (Start menu) opens the window. Add songs with **Add song**: the video URL, title, singer, composer, lyricist, language, and voice colour. Use the search box and the language and status filters above the list to find songs. Tick the box on each song's row to choose which songs to work on, choose **Make videos (all steps)** and press **Run** — the action runs on the ticked songs, or on every song when none are ticked. **Remove** deletes the ticked songs from the list. The log shows the same output as the command line. While a run goes, the status column marks the songs it will work on as queued and shows what is happening to each one (downloading, timing words, rendering…). **Edit lyrics** opens the selected song in the **Subtitle editor** tab (below). **Edit ASS file** opens the song's `.edited.ass` in Aegisub when it is installed (or whatever program opens `.ass` files). **Settings** shows `polykara.toml` as a form: tabs for lyrics, readings, layout and effects, title and credits, video, lyric search, and the player, with tick boxes, lists of choices, fonts and a colour picker, and each setting's explanation when you point at it. Saving changes only the values you changed and keeps the file's comments; the **Advanced (file)** tab still shows the file as text, and **Update yt-dlp** updates the bundled yt-dlp when YouTube downloads start failing.
 - The window is a native Windows program written in Rust with no third-party libraries (`src/`), so it opens instantly and keeps up while a song plays. The lyrics, readings and settings files are handled by the same Rust code as the command line, through `polykara-cli.exe engine`.
 - Your songs, settings and work files live in `Documents\PolyKara` (`songs.csv`, `polykara.toml`, `work\`). Finished videos are in `Documents\PolyKara\work\output`. Set the `POLYKARA_HOME` environment variable to use another folder.
 - **PolyKara command line** opens a console for `polykara-cli.exe`, which takes the commands below. `polykara-cli.exe selftest` renders a test frame with the bundled tools and reports anything missing.
@@ -20,9 +20,9 @@ Download `PolyKara-Setup-<version>.exe` from the repository's Releases page, or 
 
 Windows may refuse to start an unsigned installer ("An application control policy has blocked this file", Smart App Control). Releases are being set up for free code signing by SignPath Foundation; see [CODE_SIGNING.md](CODE_SIGNING.md) for the code signing policy. Until a signed release is out, right-click the downloaded installer → Properties → tick **Unblock**, then run it again.
 
-To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Rust from rustup; no Python). It downloads ffmpeg, yt-dlp, whisper.cpp, the model and the dictionaries, builds both Rust programs with `cargo`, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program (including `packaging\ui-test.ps1`, which opens each window and times a word in the timing editor), and attaches the installer to a release when a `v*` tag is pushed.
+To build the installer yourself on Windows, run `packaging\build-windows.ps1` (Rust from rustup; no Python). It downloads ffmpeg, yt-dlp, whisper.cpp, the model and the dictionaries, builds both Rust programs with `cargo`, and runs Inno Setup. The GitHub workflow `.github/workflows/windows.yml` does the same on every push, tests the built program (including `packaging\ui-test.ps1`, which opens each window and times a word in the subtitle editor), and attaches the installer to a release when a `v*` tag is pushed.
 
-On Linux and macOS the command line and engine build from a checkout with `cargo build --release`; the window is Windows-only. `polykara-cli studio` serves the timing editor and player in a browser.
+On Linux and macOS the command line and engine build from a checkout with `cargo build --release`; the window is Windows-only. `polykara-cli studio` serves the subtitle editor and player in a browser.
 
 ## Quick start
 
@@ -120,7 +120,7 @@ Every source is saved to its own file so the files can be compared with each oth
 
 | Trust order | Source | File |
 | --- | --- | --- |
-| 1 | Timing saved in the [timing editor](#timing-editor) | `work/lyrics/<id>.timed.lrc` |
+| 1 | Timing saved in the [subtitle editor](#subtitle-editor) | `work/lyrics/<id>.timed.lrc` |
 | 2 | `lyrics_file` in `songs.csv` (`.lrc`, `.srt`, `.vtt`, or plain `.txt`) | the file you name |
 | 3 | Creator-made YouTube subtitles | `work/subtitles/<id>.<lang>.vtt` |
 | 4 | LRCLIB synced lyrics | `work/lyrics/<id>.lrclib.lrc` |
@@ -203,7 +203,7 @@ The engines guess wrong on some words: the pinyin data reads 重来 as zhòng l�
 君 きみ
 ```
 
-In the window, **Word readings…** on the timing editor tab shows the reading of every character of the song and adds a word to your list in one step. The editor's preview shows each reading above its characters, and the next **Make subtitles** run uses them in the romanized row.
+In the window, **Word readings…** on the subtitle editor tab shows the reading of every character of the song and adds a word to your list in one step. The editor's preview shows each reading above its characters, and the next **Make subtitles** run uses them in the romanized row.
 
 ## Karaoke presentation
 
@@ -286,9 +286,9 @@ Unmarked lyrics use the song's `voice` colour, or `[karaoke] active_color`. Up t
 
 Singer colors are assigned consistently by first appearance while preserving word-level highlighting.
 
-## Timing editor
+## Subtitle editor
 
-The **Timing editor** tab of the window times lyrics by hand while the song plays, in the way Sayatoo does. Use it when the automatic word timing is off, or when no lyrics were found online (paste them with **Lyrics text…**).
+The **Subtitle editor** tab of the window times lyrics by hand while the song plays, in the way Sayatoo does. Use it when the automatic word timing is off, or when no lyrics were found online (paste them with **Lyrics text…**).
 
 1. Select a song on the **Songs** tab and press **Edit lyrics** (or choose it from the editor's song list). It must have been downloaded. The editor extracts its audio once and draws the waveform.
 2. Press **Enter** to play. The highlighted word (one character for Chinese, Japanese and Korean) is the next one to time. **Hold Space** while it is sung: pressing marks where it starts, letting go marks where it ends. In **Tap** mode, each press starts the next word and ends the one before it. Slow the song down with **Speed** if it is too fast to follow. If you always press late, set **Reaction delay**.

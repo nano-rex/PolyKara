@@ -1,4 +1,4 @@
-//! Timing editor tab: time lyrics by hand while the song plays, in the style of Sayatoo.
+//! Subtitle editor tab: time and edit lyrics by hand while the song plays, in the style of Sayatoo/SayaSub.
 //!
 //! Hold Space while each highlighted word (or character) is sung: pressing
 //! marks where it starts and letting go marks where it ends. The timeline under

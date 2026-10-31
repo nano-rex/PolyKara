@@ -20,7 +20,7 @@ fn usage() -> String {
            add FILE...   add media files on this computer as songs\n\
            selftest      check the tools and render a test frame\n\
            engine        answer the desktop app's JSON requests on stdin
-           studio        serve the timing editor and player on localhost
+           studio        serve the subtitle editor and player on localhost
            player        serve the player on localhost\n\
          \n\
          Options:\n\
