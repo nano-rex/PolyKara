@@ -90,13 +90,13 @@ mod tests {
         let online = vec![
             "Hello from the other side".to_string(),
             "A line the singer never sang".to_string(),
-            "[Chorus]".to_string(),
+            "...".to_string(),
         ];
         let heard = tokens("hello from the other side and some more words here");
         let report = reconcile(&online, &heard, 0.6);
         assert!(report.lines[0].ok, "a well-heard line is confirmed");
         assert!(!report.lines[1].ok, "an unheard line is flagged");
-        assert!(report.lines[2].ok, "a line with no words is not judged");
+        assert!(report.lines[2].ok, "a punctuation-only line has no words and is not judged");
         assert_eq!(report.confirmed(), 2);
         assert_eq!(report.flagged().len(), 1);
     }
