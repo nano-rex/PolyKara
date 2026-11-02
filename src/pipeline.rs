@@ -538,7 +538,11 @@ fn lyrics_song(row: &Row, dry_run: bool) -> Step {
             let text = subtitle::read_text(&path).map_err(fail)?;
             entries = subtitle::plain_entries(&text, &units);
         } else {
-            entries = subtitle::time_entries(&entries, &units, timing.int_or("max_tail_ms", 0), timing.int_or("tail_hold_ms", 1000), &mut estimated);
+            let offset;
+            (entries, offset) = subtitle::time_entries_with_offset(&entries, &units, timing.int_or("max_tail_ms", 0), timing.int_or("tail_hold_ms", 1000), &mut estimated);
+            if offset != 0 {
+                println!("{sid}: {label} runs {:+.2}s off the recording; lines moved to fit", offset as f64 / 1000.0);
+            }
         }
     }
     if entries.is_empty() {

@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{paths, resolve};
 use crate::csv::Row;
-use crate::difflib::{Matcher, Tag};
 use crate::json::Value;
 use crate::manifest::get;
 use crate::text::{split_speaker, token_key, tokenise};
@@ -95,7 +94,7 @@ pub fn timed_units(data: &Value) -> Vec<Unit> {
             Value::Null => String::new(),
             other => other.dump(),
         };
-        let keys: Vec<String> = tokenise(&text).iter().map(|token| token_key(token)).filter(|key| !key.is_empty()).collect();
+        let keys: Vec<String> = tokenise(&text).iter().map(|token| match_key(token)).filter(|key| !key.is_empty()).collect();
         let span = (end - start).max(0);
         let count = keys.len() as i64;
         // A recognised CJK "word" covers several lyric characters; share its time between them.
@@ -126,31 +125,244 @@ pub fn load_units(path: &Path) -> Result<Vec<Unit>, String> {
     Ok(units)
 }
 
-/// Give each lyric token the time of the recognised word it corresponds to, or None.
-pub fn match_tokens(keys: &[String], units: &[Unit]) -> Vec<Option<(i64, i64)>> {
-    let mut times = vec![None; keys.len()];
-    if keys.is_empty() || units.is_empty() {
-        return times;
+/// The key lyric tokens and recognised words are matched on: case, punctuation
+/// and Traditional/Simplified Chinese do not matter.
+pub fn match_key(token: &str) -> String {
+    token_key(&crate::romanize::simplified(token))
+}
+
+/// Score of an exact match; near matches score less, unrelated words 0.
+const EXACT: i32 = 10;
+/// Bonus for a match that continues a run of matches, so runs beat scattered words.
+const RUN_BONUS: i32 = 2;
+
+fn edit_distance(a: &[char], b: &[char]) -> usize {
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
+            diagonal = above;
+        }
     }
-    let heard: Vec<String> = units.iter().map(|unit| unit.2.clone()).collect();
-    for (tag, i1, i2, j1, j2) in Matcher::new(keys, &heard).opcodes() {
-        let count = i2 - i1;
-        if tag == Tag::Equal || (tag == Tag::Replace && count == j2 - j1) {
-            // Equal-length mismatches are misheard words or homophones in the same position.
-            for offset in 0..count {
-                times[i1 + offset] = Some((units[j1 + offset].0, units[j1 + offset].1));
-            }
-        } else if tag == Tag::Replace {
-            let (low, high) = (units[j1].0, units[j2 - 1].1);
-            let count = count as i64;
-            if MIN_SPREAD_MS * count <= high - low && high - low <= MAX_TOKEN_MS * count {
-                for offset in 0..count {
-                    times[i1 + offset as usize] = Some((low + (high - low) * offset / count, low + (high - low) * (offset + 1) / count));
+    row[b.len()]
+}
+
+/// How alike a lyric key and a heard key are: EXACT when equal, less for a
+/// misheard spelling of the same word ("runnin" / "running"), 0 otherwise.
+pub fn similarity(lyric: &str, heard: &str) -> i32 {
+    if lyric == heard {
+        return EXACT;
+    }
+    let (a, b): (Vec<char>, Vec<char>) = (lyric.chars().collect(), heard.chars().collect());
+    // Short words and CJK carry too little spelling to compare; a different first
+    // letter is usually a different word ("love" / "dove").
+    if a.len() < 4 || b.len() < 4 || a[0] != b[0] || a.iter().chain(&b).any(|c| crate::text::is_cjk_unit(*c)) {
+        return 0;
+    }
+    let longest = a.len().max(b.len());
+    if a.len().min(b.len()) * 3 < longest * 2 {
+        return 0;
+    }
+    let ratio = 1.0 - edit_distance(&a, &b) as f64 / longest as f64;
+    if ratio < 0.65 {
+        return 0;
+    }
+    (ratio * (EXACT - 1) as f64).floor() as i32
+}
+
+/// Pairs (lyric index, unit index) of the best in-order alignment: the most
+/// similar words, preferring unbroken runs. `allowed` rules out pairs whose
+/// recognised word lies outside the lyric token's line.
+fn align_pairs(keys: &[String], units: &[Unit], allowed: &dyn Fn(usize, usize) -> bool) -> Vec<(usize, usize)> {
+    let (n, m) = (keys.len(), units.len());
+    if n == 0 || m == 0 {
+        return Vec::new();
+    }
+    // Score each distinct pair of words once.
+    let mut ids = std::collections::HashMap::new();
+    let lyric_ids: Vec<usize> = keys.iter().map(|key| { let next = ids.len(); *ids.entry(key.as_str()).or_insert(next) }).collect();
+    let lyric_count = ids.len();
+    let mut heard_ids = std::collections::HashMap::new();
+    let unit_ids: Vec<usize> = units.iter().map(|unit| { let next = heard_ids.len(); *heard_ids.entry(unit.2.as_str()).or_insert(next) }).collect();
+    let mut lyric_words = vec![""; lyric_count];
+    for (word, id) in &ids {
+        lyric_words[*id] = word;
+    }
+    let mut heard_words = vec![""; heard_ids.len()];
+    for (word, id) in &heard_ids {
+        heard_words[*id] = word;
+    }
+    let scores: Vec<i32> = lyric_words.iter().flat_map(|a| heard_words.iter().map(move |b| similarity(a, b))).collect();
+    let heard_count = heard_words.len();
+    // best: the best score of keys[..i] against units[..j]; run: the same, ending in the match (i-1, j-1).
+    // Steps: 0 from above, 1 from the left, 2 a match after `best`, 3 a match continuing `run`.
+    const NONE: i32 = i32::MIN / 2;
+    let width = m + 1;
+    let mut best_step = vec![0u8; (n + 1) * width];
+    let mut run_step = vec![0u8; (n + 1) * width];
+    let mut best_prev = vec![0i32; width];
+    let mut run_prev = vec![NONE; width];
+    let mut best_row = vec![0i32; width];
+    let mut run_row = vec![NONE; width];
+    for j in 1..=m {
+        best_step[j] = 1;
+    }
+    for i in 1..=n {
+        best_row[0] = 0;
+        run_row[0] = NONE;
+        best_step[i * width] = 0;
+        for j in 1..=m {
+            let mut run = NONE;
+            let mut step = 2;
+            let score = scores[lyric_ids[i - 1] * heard_count + unit_ids[j - 1]];
+            if score > 0 && allowed(i - 1, j - 1) {
+                run = best_prev[j - 1] + score;
+                if run_prev[j - 1] > NONE && run_prev[j - 1] + score + RUN_BONUS > run {
+                    run = run_prev[j - 1] + score + RUN_BONUS;
+                    step = 3;
                 }
+            }
+            run_row[j] = run;
+            run_step[i * width + j] = step;
+            let (mut best, mut how) = (best_prev[j], 0u8);
+            if best_row[j - 1] > best {
+                best = best_row[j - 1];
+                how = 1;
+            }
+            if run > best {
+                best = run;
+                how = step;
+            }
+            best_row[j] = best;
+            best_step[i * width + j] = how;
+        }
+        std::mem::swap(&mut best_prev, &mut best_row);
+        std::mem::swap(&mut run_prev, &mut run_row);
+    }
+    let mut pairs = Vec::new();
+    let (mut i, mut j, mut in_run) = (n, m, false);
+    while i > 0 && j > 0 {
+        let step = if in_run { run_step[i * width + j] } else { best_step[i * width + j] };
+        match step {
+            0 => i -= 1,
+            1 => j -= 1,
+            _ => {
+                pairs.push((i - 1, j - 1));
+                in_run = step == 3;
+                i -= 1;
+                j -= 1;
             }
         }
     }
+    pairs.reverse();
+    pairs
+}
+
+/// Time the unmatched lyric tokens `run` from the unmatched recognised words
+/// `heard` between the same two matches: one to one when the counts agree
+/// (misheard words or homophones in place), else spread over their time.
+fn fill_run(times: &mut [Option<(i64, i64)>], run: &[usize], heard: &[usize], units: &[Unit]) {
+    if run.is_empty() || heard.is_empty() {
+        return;
+    }
+    if run.len() == heard.len() {
+        for (token, unit) in run.iter().zip(heard) {
+            times[*token] = Some((units[*unit].0, units[*unit].1));
+        }
+        return;
+    }
+    let (low, high) = (units[heard[0]].0, units[heard[heard.len() - 1]].1);
+    let count = run.len() as i64;
+    if MIN_SPREAD_MS * count <= high - low && high - low <= MAX_TOKEN_MS * count {
+        for (offset, token) in run.iter().enumerate() {
+            let offset = offset as i64;
+            times[*token] = Some((low + (high - low) * offset / count, low + (high - low) * (offset + 1) / count));
+        }
+    }
+}
+
+/// How far a recognised word may be from its lyric line's time and still belong to it.
+pub const LINE_LEAD_MS: i64 = 1000;
+pub const LINE_TAIL_MS: i64 = 1000;
+
+/// Give each lyric token the time of the recognised word it corresponds to, or None.
+///
+/// `line_of` gives each token's line and `windows` each line's (start, end) in ms;
+/// with no windows the tokens are aligned over the whole recording.
+pub fn match_lines(keys: &[String], line_of: &[usize], windows: Option<&[(i64, i64)]>, units: &[Unit]) -> Vec<Option<(i64, i64)>> {
+    let mut times = vec![None; keys.len()];
+    let fits = |line: usize, unit: usize| match windows {
+        Some(windows) => units[unit].0 >= windows[line].0 - LINE_LEAD_MS && units[unit].0 <= windows[line].1 + LINE_TAIL_MS,
+        None => true,
+    };
+    let pairs = align_pairs(keys, units, &|token, unit| fits(line_of[token], unit));
+    for (token, unit) in &pairs {
+        times[*token] = Some((units[*unit].0, units[*unit].1));
+    }
+    // Between two matches, give each line's unmatched tokens the unmatched words heard in its time.
+    let mut previous: (usize, usize) = (0, 0);
+    for anchor in pairs.iter().map(|(token, unit)| (*token, *unit)).chain(std::iter::once((keys.len(), units.len()))) {
+        let tokens: Vec<usize> = (previous.0..anchor.0).filter(|token| times[*token].is_none()).collect();
+        let mut start = 0;
+        while start < tokens.len() {
+            let line = line_of[tokens[start]];
+            let mut stop = start;
+            while stop < tokens.len() && line_of[tokens[stop]] == line {
+                stop += 1;
+            }
+            let next_line_start = match (windows, tokens.get(stop)) {
+                (Some(windows), Some(token)) => windows[line_of[*token]].0,
+                _ => i64::MAX,
+            };
+            let first_line = start == 0;
+            let heard: Vec<usize> = (previous.1..anchor.1)
+                .filter(|unit| fits(line, *unit) && units[*unit].0 < next_line_start && (first_line || windows.map_or(true, |windows| units[*unit].0 >= windows[line].0)))
+                .collect();
+            fill_run(&mut times, &tokens[start..stop], &heard, units);
+            start = stop;
+        }
+        previous = (anchor.0 + 1, anchor.1 + 1);
+    }
     times
+}
+
+/// Give each lyric token the time of the recognised word it corresponds to, or None.
+pub fn match_tokens(keys: &[String], units: &[Unit]) -> Vec<Option<(i64, i64)>> {
+    match_lines(keys, &vec![0; keys.len()], None, units)
+}
+
+/// The constant offset (ms) between a timed lyric file and the recording, such as
+/// an album LRC on a video with a longer intro, or 0 when the lines already fit
+/// or the evidence is weak. Measured from lines whose first word was recognised.
+pub fn line_offset(keys: &[String], line_of: &[usize], starts: &[i64], units: &[Unit]) -> i64 {
+    let pairs = align_pairs(keys, units, &|_, _| true);
+    let mut deltas: Vec<i64> = Vec::new();
+    for (token, unit) in pairs {
+        if token == 0 || line_of[token - 1] != line_of[token] {
+            deltas.push(units[unit].0 - starts[line_of[token]]);
+        }
+    }
+    if deltas.len() < 3 || deltas.len() * 4 < starts.len() {
+        return 0;
+    }
+    let median = |values: &mut Vec<i64>| {
+        values.sort_unstable();
+        values[values.len() / 2]
+    };
+    let middle = median(&mut deltas);
+    let mut close: Vec<i64> = deltas.iter().copied().filter(|delta| (delta - middle).abs() <= 700).collect();
+    if close.len() * 5 < deltas.len() * 3 {
+        return 0;
+    }
+    let offset = median(&mut close);
+    if offset.abs() < 400 {
+        0
+    } else {
+        offset
+    }
 }
 
 /// Estimate unmatched tokens from their matched neighbours and keep the sequence monotonic.
@@ -199,49 +411,77 @@ pub fn fill_gaps(times: &[Option<(i64, i64)>], low: i64, high: i64) -> Vec<(i64,
 /// Lines that already carry word timing are kept. Start times of lines where
 /// nothing was recognised are added to `estimated`.
 pub fn time_entries(entries: &[Entry], units: &[Unit], max_tail_ms: i64, tail_hold_ms: i64, estimated: &mut Vec<i64>) -> Vec<Entry> {
+    time_entries_with_offset(entries, units, max_tail_ms, tail_hold_ms, estimated).0
+}
+
+/// [`time_entries`], also returning the offset (ms) the lines were moved by to fit the recording.
+///
+/// The whole song is aligned at once, so a line's words can be found slightly
+/// before or after its time in the file, and a repeated chorus cannot claim the
+/// words of the next one.
+pub fn time_entries_with_offset(entries: &[Entry], units: &[Unit], max_tail_ms: i64, tail_hold_ms: i64, estimated: &mut Vec<i64>) -> (Vec<Entry>, i64) {
+    let lines: Vec<Vec<String>> = entries
+        .iter()
+        .map(|entry| if entry.words.is_empty() { tokenise(&split_speaker(&entry.text).1) } else { Vec::new() })
+        .collect();
+    let todo: Vec<usize> = (0..entries.len()).filter(|index| !lines[*index].is_empty()).collect();
+    let mut keys = Vec::new();
+    let mut line_of = Vec::new();
+    for (line, index) in todo.iter().enumerate() {
+        for token in &lines[*index] {
+            keys.push(match_key(token));
+            line_of.push(line);
+        }
+    }
+    let starts: Vec<i64> = todo.iter().map(|index| entries[*index].start).collect();
+    let offset = if units.is_empty() { 0 } else { line_offset(&keys, &line_of, &starts, units) };
+    let windows: Vec<(i64, i64)> = todo.iter().map(|index| (entries[*index].start + offset, entries[*index].end + offset)).collect();
+    let times = match_lines(&keys, &line_of, Some(&windows), units);
     let mut result = Vec::new();
-    let mut used = 0;
-    for entry in entries {
+    let mut cursor = 0;
+    let mut line = 0;
+    let mut previous_end = i64::MIN;
+    for (index, entry) in entries.iter().enumerate() {
         if !entry.words.is_empty() {
+            previous_end = entry.words.last().map_or(entry.end, |word| word.1);
             result.push(entry.clone());
             continue;
         }
-        let tokens = tokenise(&split_speaker(&entry.text).1);
-        if tokens.is_empty() {
-            result.push(entry.clone());
+        if lines[index].is_empty() {
+            result.push(Entry::new(entry.start + offset, entry.end + offset, entry.text.clone(), Vec::new()));
             continue;
         }
-        let mut first = used;
-        while first < units.len() && units[first].1 < entry.start {
-            first += 1;
-        }
-        let mut last = first;
-        while last < units.len() && units[last].0 <= entry.end {
-            last += 1;
-        }
-        used = used.max(last);
-        let keys: Vec<String> = tokens.iter().map(|token| token_key(token)).collect();
-        let times = match_tokens(&keys, &units[first..last]);
-        let recognised = times.iter().any(Option::is_some);
+        let count = lines[index].len();
+        let line_times = &times[cursor..cursor + count];
+        cursor += count;
+        let (start, end) = windows[line];
+        line += 1;
+        let first = line_times.iter().flatten().next().map(|time| time.0);
+        let last = line_times.iter().flatten().last().map(|time| time.1);
+        let recognised = first.is_some();
         if !recognised {
-            estimated.push(entry.start);
+            estimated.push(start);
         }
-        let timed: Vec<Word> = fill_gaps(&times, entry.start, entry.end).into_iter().zip(tokens).map(|((left, right), token)| (left, right, token)).collect();
-        let mut end = entry.end;
+        // Words heard a little before or after the line's time still belong to it.
+        let low = first.map_or(start, |first| first.min(start.max(previous_end)));
+        let high = last.map_or(end, |last| last.max(end)).max(low);
+        let timed: Vec<Word> = fill_gaps(line_times, low, high).into_iter().zip(lines[index].iter().cloned()).map(|((left, right), token)| (left, right, token)).collect();
+        let mut end = high;
         // A line that runs into a long instrumental should leave the screen after its last word.
         let last_end = timed.last().map(|word| word.1).unwrap_or(end);
+        previous_end = last_end;
         if recognised && max_tail_ms > 0 && end - last_end > max_tail_ms {
-            end = (entry.start + 300).max(last_end + tail_hold_ms.max(0));
+            end = (low + 300).max(last_end + tail_hold_ms.max(0));
         }
-        result.push(Entry::new(entry.start, end, entry.text.clone(), timed));
+        result.push(Entry::new(low, end, entry.text.clone(), timed));
     }
-    result
+    (result, offset)
 }
 
 /// Time untimed lyric lines by aligning the whole text against the recognised words.
 pub fn plain_entries(text: &str, units: &[Unit]) -> Vec<Entry> {
     let lines: Vec<Vec<String>> = text.lines().map(|line| tokenise(line.trim())).filter(|tokens| !tokens.is_empty()).collect();
-    let keys: Vec<String> = lines.iter().flatten().map(|token| token_key(token)).collect();
+    let keys: Vec<String> = lines.iter().flatten().map(|token| match_key(token)).collect();
     if keys.is_empty() || units.is_empty() {
         return Vec::new();
     }
@@ -568,6 +808,79 @@ mod tests {
         assert!(starts.windows(2).all(|pair| pair[0] <= pair[1]));
         assert!(estimated.is_empty());
         assert_eq!(fill_gaps(&[None, Some((500, 600)), None], 0, 1000), vec![(100, 500), (500, 600), (600, 1000)]);
+    }
+
+    fn heard(words: &[(i64, &str)]) -> Vec<Unit> {
+        words.iter().map(|(start, word)| (*start, start + 200, match_key(word))).collect()
+    }
+
+    #[test]
+    fn misheard_spellings_still_match() {
+        assert_eq!(similarity("running", "running"), EXACT);
+        assert!(similarity("runnin", "running") > 0);
+        assert_eq!(similarity("love", "dove"), 0, "short words must match exactly");
+        assert_eq!(similarity("你", "妳"), 0);
+        // "tonight" was heard as "tonite": still the anchor for its line, so "stay" is not pulled onto it.
+        let units = heard(&[(1000, "stay"), (1400, "with"), (1800, "me"), (2200, "tonite")]);
+        let entries = vec![Entry::new(900, 3000, "Stay with me tonight", vec![])];
+        let timed = time_entries(&entries, &units, 0, 1000, &mut Vec::new());
+        assert_eq!(timed[0].words.iter().map(|word| word.0).collect::<Vec<_>>(), vec![1000, 1400, 1800, 2200]);
+    }
+
+    #[test]
+    fn a_repeated_line_keeps_to_its_own_time() {
+        // The same words are sung twice; each line takes the words heard in its own time.
+        let units = heard(&[(1000, "oh"), (1300, "baby"), (5000, "oh"), (5300, "baby")]);
+        let entries = vec![Entry::new(4800, 6000, "oh baby", vec![]), Entry::new(9000, 10000, "something else here", vec![])];
+        let timed = time_entries(&entries, &units, 0, 1000, &mut Vec::new());
+        assert_eq!(timed[0].words[0].0, 5000);
+        assert_eq!(timed[0].words[1].0, 5300);
+    }
+
+    #[test]
+    fn words_slightly_before_the_line_belong_to_it() {
+        let units = heard(&[(1000, "one"), (1500, "two"), (2400, "three"), (2800, "four")]);
+        let entries = vec![Entry::new(900, 2600, "one two", vec![]), Entry::new(2600, 4000, "three four", vec![])];
+        let timed = time_entries(&entries, &units, 0, 1000, &mut Vec::new());
+        assert_eq!(timed[1].start, 2400, "the line starts when its first word is sung");
+        assert_eq!(timed[1].words[0].0, 2400);
+        assert!(timed[0].end <= timed[1].words[0].0 || timed[0].words[1].1 <= timed[1].words[0].0);
+    }
+
+    #[test]
+    fn a_shifted_lyric_file_is_moved_onto_the_recording() {
+        // An album LRC on a video whose intro is 4 s longer: every line is heard 4 s late.
+        let lines = ["first line of the song", "second line goes here", "third line follows on", "and the fourth line ends"];
+        let mut entries = Vec::new();
+        let mut words = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let start = 10_000 + index as i64 * 5000;
+            entries.push(Entry::new(start, start + 5000, *line, vec![]));
+            for (offset, word) in line.split(' ').enumerate() {
+                words.push((start + 4000 + 50 + offset as i64 * 400, word));
+            }
+        }
+        let units = heard(&words);
+        let mut estimated = Vec::new();
+        let (timed, offset) = time_entries_with_offset(&entries, &units, 0, 1000, &mut estimated);
+        assert_eq!(offset, 4050);
+        assert!(estimated.is_empty());
+        for (index, entry) in timed.iter().enumerate() {
+            assert_eq!(entry.words[0].0, 14_050 + index as i64 * 5000);
+            assert_eq!(entry.words.last().unwrap().0, 14_050 + index as i64 * 5000 + 400 * (entry.words.len() as i64 - 1));
+        }
+        // Lines already in time are left alone.
+        let (_, none) = time_entries_with_offset(&timed, &units, 0, 1000, &mut Vec::new());
+        assert_eq!(none, 0);
+    }
+
+    #[test]
+    fn a_misheard_first_character_takes_its_place() {
+        // whisper wrote a homophone for the first character: same count, so it keeps the time.
+        let units = heard(&[(1000, "您"), (1200, "好"), (1400, "吗")]);
+        let entries = vec![Entry::new(900, 2000, "你好吗", vec![])];
+        let timed = time_entries(&entries, &units, 0, 1000, &mut Vec::new());
+        assert_eq!(timed[0].words.iter().map(|word| word.0).collect::<Vec<_>>(), vec![1000, 1200, 1400]);
     }
 
     #[test]

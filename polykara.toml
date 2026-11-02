@@ -152,6 +152,8 @@ medium_min_budget_gib = 8
 large_min_budget_gib = 12
 cpu_threads = 0
 num_workers = 1
+# Word times from whisper.cpp DTW token timestamps (much closer to the audio); false uses its plain offsets.
+dtw = true
 
 [editor]
 # The Subtitle editor's starting reaction delay (ms): live key presses are timed

@@ -182,6 +182,9 @@ pub fn transcribe(row: &Row, audio: &Path, language: &str, out_base: &Path, prom
         format!("the whisper.cpp model {name} is missing: put it in {} or set alignment.model_path", paths().models.display())
     })?;
     let language = whisper_language(language, &model);
+    // DTW token timestamps follow the audio much more closely than whisper's own
+    // token offsets; whisper.cpp only computes them with flash attention off.
+    let dtw = if config::load_config().get("alignment").bool_or("dtw", true) { dtw_preset(&model_file) } else { None };
     let mut args = vec![
         "-m".to_string(),
         model_file.display().to_string(),
@@ -200,31 +203,80 @@ pub fn transcribe(row: &Row, audio: &Path, language: &str, out_base: &Path, prom
         args.push("--prompt".to_string());
         args.push(prompt.to_string());
     }
-    let shown: Vec<&str> = args
-        .iter()
-        .enumerate()
-        .map(|(index, value)| if index > 0 && args[index - 1] == "--prompt" { "<lyrics>" } else { value.as_str() })
-        .collect();
-    println!("$ {} {}", whisper.display(), shown.join(" "));
+    let mut dtw_args = Vec::new();
+    if let Some(preset) = dtw {
+        dtw_args = vec!["--dtw".to_string(), preset.to_string(), "-nfa".to_string()];
+    }
     if dry_run {
+        show_command(&whisper, &args, &dtw_args);
         return Ok(None);
     }
     if let Some(folder) = out_base.parent() {
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
     }
-    let mut command = Command::new(&whisper);
-    command.args(&args).stdin(Stdio::null());
-    crate::tools::quiet(&mut command);
-    let status = command.status().map_err(|error| format!("{} could not be started ({error})", whisper.display()))?;
-    if !status.success() {
-        return Err(format!("{} exited with status {}", whisper.display(), status.code().unwrap_or(-1)));
+    let mut result = run_whisper(&whisper, &args, &dtw_args);
+    if result.is_err() && !dtw_args.is_empty() {
+        // A whisper.cpp build without DTW support still gives usable word timing.
+        println!("WARN whisper.cpp failed with DTW timestamps; trying again without them");
+        result = run_whisper(&whisper, &args, &[]);
     }
+    result?;
     let raw = PathBuf::from(format!("{}.json", out_base.display()));
     let text = std::fs::read_to_string(&raw).map_err(|error| format!("whisper.cpp wrote no JSON ({}): {error}", raw.display()))?;
     let data = Value::parse(&text).map_err(|error| format!("whisper.cpp wrote invalid JSON: {error}"))?;
     let timing = convert(&data)?;
     let _ = std::fs::remove_file(&raw);
     Ok(Some(timing))
+}
+
+fn show_command(whisper: &Path, args: &[String], extra: &[String]) {
+    let shown: Vec<&str> = args
+        .iter()
+        .enumerate()
+        .map(|(index, value)| if index > 0 && args[index - 1] == "--prompt" { "<lyrics>" } else { value.as_str() })
+        .chain(extra.iter().map(String::as_str))
+        .collect();
+    println!("$ {} {}", whisper.display(), shown.join(" "));
+}
+
+fn run_whisper(whisper: &Path, args: &[String], extra: &[String]) -> Result<(), String> {
+    show_command(whisper, args, extra);
+    let mut command = Command::new(whisper);
+    command.args(args).args(extra).stdin(Stdio::null());
+    crate::tools::quiet(&mut command);
+    let status = command.status().map_err(|error| format!("{} could not be started ({error})", whisper.display()))?;
+    if !status.success() {
+        return Err(format!("{} exited with status {}", whisper.display(), status.code().unwrap_or(-1)));
+    }
+    Ok(())
+}
+
+/// whisper.cpp's DTW alignment-heads preset for a model file such as
+/// ggml-large-v3-turbo-q5_0.bin, or None when the model has no preset.
+fn dtw_preset(model_file: &Path) -> Option<&'static str> {
+    let name = model_file.file_name()?.to_string_lossy().to_lowercase();
+    let name = name.strip_suffix(".bin").unwrap_or(&name);
+    let name = name.strip_prefix("ggml-").unwrap_or(name);
+    // Quantized models keep their architecture: drop a "-q5_0"-style suffix.
+    let name = match name.rfind("-q") {
+        Some(at) if name[at + 2..].chars().next().map_or(false, |c| c.is_ascii_digit()) => &name[..at],
+        _ => name,
+    };
+    Some(match name {
+        "tiny" => "tiny",
+        "tiny.en" => "tiny.en",
+        "base" => "base",
+        "base.en" => "base.en",
+        "small" => "small",
+        "small.en" => "small.en",
+        "medium" => "medium",
+        "medium.en" => "medium.en",
+        "large-v1" => "large.v1",
+        "large-v2" => "large.v2",
+        "large-v3" => "large.v3",
+        "large-v3-turbo" => "large.v3.turbo",
+        _ => return None,
+    })
 }
 
 /// Time one song's words with whisper.cpp, priming it with the known lyrics.
@@ -253,7 +305,8 @@ fn convert(data: &Value) -> Result<Value, String> {
     let mut segments = Vec::new();
     let mut total = 0usize;
     for segment in data.get("transcription").items() {
-        let mut words: Vec<(f64, f64, String)> = Vec::new();
+        // (start, end, text, DTW onset) per word, in ms.
+        let mut words: Vec<(f64, f64, String, Option<f64>)> = Vec::new();
         for token in segment.get("tokens").items() {
             let raw = token.get("text").str();
             if raw.is_empty() || raw.starts_with("[_") || raw.starts_with("<|") {
@@ -263,13 +316,18 @@ fn convert(data: &Value) -> Result<Value, String> {
             if piece.is_empty() {
                 continue;
             }
-            let start = token.get("offsets").get("from").as_i64().unwrap_or(0) as f64 / 1000.0;
-            let end = token.get("offsets").get("to").as_i64().unwrap_or(0) as f64 / 1000.0;
+            let start = token.get("offsets").get("from").as_i64().unwrap_or(0) as f64;
+            let end = token.get("offsets").get("to").as_i64().unwrap_or(0) as f64;
             if end <= start {
                 continue;
             }
+            // t_dtw is in centiseconds, -1 when DTW was not run.
+            let onset = match token.get("t_dtw") {
+                Value::Number(value) if *value >= 0.0 => Some(value * 10.0),
+                _ => None,
+            };
             let starts_word = raw.starts_with(' ')
-                || words.last().map(|(_, _, text)| has_cjk(text) || has_cjk(piece)).unwrap_or(true);
+                || words.last().map(|word| has_cjk(&word.2) || has_cjk(piece)).unwrap_or(true);
             let mut appended = false;
             if !starts_word {
                 if let Some(word) = words.last_mut() {
@@ -279,23 +337,25 @@ fn convert(data: &Value) -> Result<Value, String> {
                 }
             }
             if !appended {
-                words.push((start, end, piece.to_string()));
+                words.push((start, end, piece.to_string(), onset));
             }
         }
         if words.is_empty() {
             continue;
         }
+        let segment_start = segment.get("offsets").get("from").as_i64().map(|value| value as f64).unwrap_or(words[0].0);
+        let segment_end = segment.get("offsets").get("to").as_i64().map(|value| value as f64).unwrap_or(words[words.len() - 1].1);
+        let timed = if words.iter().all(|word| word.3.is_some()) { dtw_times(&words, segment_start, segment_end) } else { words.iter().map(|word| (word.0, word.1)).collect() };
         total += words.len();
-        let segment_start = segment.get("offsets").get("from").as_i64().map(|value| value as f64 / 1000.0).unwrap_or(words[0].0);
-        let segment_end = segment.get("offsets").get("to").as_i64().map(|value| value as f64 / 1000.0).unwrap_or(words[words.len() - 1].1);
         let text = segment.get("text").str().trim().to_string();
         let words: Vec<Value> = words
             .into_iter()
-            .map(|(start, end, word)| Value::object(vec![("start", Value::Number(start)), ("end", Value::Number(end)), ("word", Value::from(word))]))
+            .zip(timed)
+            .map(|((_, _, word, _), (start, end))| Value::object(vec![("start", Value::Number(start / 1000.0)), ("end", Value::Number(end / 1000.0)), ("word", Value::from(word))]))
             .collect();
         segments.push(Value::object(vec![
-            ("start", Value::Number(segment_start)),
-            ("end", Value::Number(segment_end)),
+            ("start", Value::Number(segment_start / 1000.0)),
+            ("end", Value::Number(segment_end / 1000.0)),
             ("text", Value::from(text)),
             ("words", Value::Array(words)),
         ]));
@@ -304,6 +364,34 @@ fn convert(data: &Value) -> Result<Value, String> {
         return Err("whisper.cpp returned no word timestamps".into());
     }
     Ok(Value::object(vec![("segments", Value::Array(segments))]))
+}
+
+/// The longest a word may be held before the next one starts; longer gaps are a pause.
+const MAX_HELD_MS: f64 = 3000.0;
+
+/// Word times from DTW onsets: each word starts at its onset and lasts until the
+/// next word starts (a held note), unless the gap is a pause, where it keeps
+/// whisper's own duration. Onsets are kept in order and inside the segment.
+fn dtw_times(words: &[(f64, f64, String, Option<f64>)], segment_start: f64, segment_end: f64) -> Vec<(f64, f64)> {
+    let mut starts = Vec::with_capacity(words.len());
+    let mut cursor = segment_start;
+    for word in words {
+        let onset = word.3.unwrap_or(word.0).max(cursor).min(segment_end);
+        starts.push(onset);
+        cursor = onset;
+    }
+    (0..words.len())
+        .map(|index| {
+            let start = starts[index];
+            let own = (words[index].1 - words[index].0).clamp(100.0, MAX_HELD_MS);
+            let end = match starts.get(index + 1) {
+                Some(next) if next - start <= MAX_HELD_MS => *next,
+                Some(next) => (start + own).min(*next),
+                None => (start + own).min(segment_end.max(start + 100.0)),
+            };
+            (start, end.max(start))
+        })
+        .collect()
 }
 
 fn has_cjk(text: &str) -> bool {
@@ -353,6 +441,45 @@ mod tests {
         assert_eq!(words.len(), 2);
         assert_eq!(words[0].get("word").str(), "你");
         assert_eq!(words[1].get("word").str(), "好");
+    }
+
+    #[test]
+    fn dtw_onsets_set_word_boundaries() {
+        // whisper's own offsets put "world" at 0.6s; DTW heard it start at 0.8s.
+        let data = Value::parse(
+            r#"{"transcription": [{"offsets": {"from": 0, "to": 9000}, "text": " Hello world again", "tokens": [
+                {"text": " Hello", "offsets": {"from": 0, "to": 500}, "t_dtw": 12},
+                {"text": " world", "offsets": {"from": 600, "to": 1200}, "t_dtw": 80},
+                {"text": " again", "offsets": {"from": 1200, "to": 1500}, "t_dtw": 500}
+            ]}]}"#,
+        )
+        .unwrap();
+        let words = convert(&data).unwrap().get("segments").items()[0].get("words").items().to_vec();
+        let times: Vec<(f64, f64)> = words.iter().map(|word| (word.get("start").as_f64().unwrap(), word.get("end").as_f64().unwrap())).collect();
+        assert_eq!(times[0], (0.12, 0.8), "held until the next word starts");
+        assert_eq!(times[1], (0.8, 1.4), "a pause before the next word keeps whisper's duration");
+        assert_eq!(times[2], (5.0, 5.3));
+    }
+
+    #[test]
+    fn missing_dtw_keeps_whisper_offsets() {
+        let data = Value::parse(
+            r#"{"transcription": [{"offsets": {"from": 0, "to": 1300}, "text": " Hi there", "tokens": [
+                {"text": " Hi", "offsets": {"from": 0, "to": 500}, "t_dtw": -1},
+                {"text": " there", "offsets": {"from": 600, "to": 1200}, "t_dtw": -1}
+            ]}]}"#,
+        )
+        .unwrap();
+        let words = convert(&data).unwrap().get("segments").items()[0].get("words").items().to_vec();
+        assert_eq!(words[1].get("start"), &Value::Number(0.6));
+    }
+
+    #[test]
+    fn dtw_presets_follow_model_files() {
+        assert_eq!(dtw_preset(Path::new("models/ggml-small.bin")), Some("small"));
+        assert_eq!(dtw_preset(Path::new("ggml-large-v3-turbo-q5_0.bin")), Some("large.v3.turbo"));
+        assert_eq!(dtw_preset(Path::new("ggml-medium.en-q8_0.bin")), Some("medium.en"));
+        assert_eq!(dtw_preset(Path::new("my-finetune.bin")), None);
     }
 
     #[test]

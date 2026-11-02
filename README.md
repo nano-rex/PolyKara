@@ -114,6 +114,8 @@ Word timing uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The Win
 
 The automatic model selector reserves a fixed 2 GiB by default and uses the best installed model within the budget: an 8 GiB system receives a 6 GiB budget. Override the thresholds or `align_model` in `polykara.toml`/`songs.csv` when needed.
 
+Word times come from whisper.cpp's DTW token timestamps (`[alignment] dtw = true`, the default), which follow the audio much more closely than its plain token offsets: each word starts at its DTW onset and is held until the next word starts, unless a pause comes first. Flash attention is turned off for this, as whisper.cpp requires. A custom model without a DTW preset, or a whisper.cpp build that rejects `--dtw`, falls back to the plain offsets.
+
 ### Lyric files and the accuracy check
 
 Every source is saved to its own file so the files can be compared with each other:
@@ -168,7 +170,7 @@ Songs without word-level timing are skipped rather than rendered with false kara
 
 ### How word timing is applied
 
-Recognised words are matched to the lyric text, not just counted, so an extra or missing recognised word does not shift the rest of the line. Words the recogniser missed are placed between their matched neighbours. Chinese, Japanese, and Korean lyrics are highlighted per character. Lines where nothing was recognised use evenly spaced timing and are listed after the `lyrics` step, so you know which lines to check in the editor.
+Recognised words are matched to the lyric text, not just counted, so an extra or missing recognised word does not shift the rest of the line. The whole song is aligned in one pass, preferring unbroken runs of matching words, so a repeated chorus cannot take the words of the next one. A recognised word counts for a line when it is heard up to a second before or after the line's time in the lyric file; the line then starts when its first word is sung. Matching ignores case, punctuation and Traditional/Simplified Chinese, and accepts a misheard spelling of a longer word (`runnin` for `running`). Misheard words with the same count as the lyric words between two matches (homophones in Chinese, for example) take their place one for one. When a timed lyric file is consistently early or late against the recording, such as an album LRC on a video with a longer intro, the offset is measured from the lines and every line is moved by it; the `lyrics` step prints the offset. Words the recogniser missed are placed between their matched neighbours. Chinese, Japanese, and Korean lyrics are highlighted per character. Lines where nothing was recognised use evenly spaced timing and are listed after the `lyrics` step, so you know which lines to check in the editor.
 
 The highlight starts when each word is actually sung: the wait before the first word and pauses between words are written into the ASS as empty `\k` syllables. `[timing]` in `polykara.toml` also controls how early a line appears (`lead_in_ms`) and when a line followed by a long instrumental leaves the screen (`max_tail_ms`, `tail_hold_ms`).
 

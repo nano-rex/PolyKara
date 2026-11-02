@@ -75,7 +75,7 @@ polykara-cli download --trending --pick
 
 ## 对轴和歌词
 
-词级对轴使用 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)：Windows 安装包自带 `whisper-cli.exe`、相关 DLL 和 `small` 模型；从源码运行时，把 `whisper-cli` 放到 `PATH`（或设置 `POLYKARA_WHISPER`），把 `ggml-*.bin` 放到 `models/`（或设置 `POLYKARA_WHISPER_MODEL` / `alignment.model_path`）。模型选择器默认预留 2 GiB，并在内存预算内选择最好的已安装模型。
+词级对轴使用 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)：Windows 安装包自带 `whisper-cli.exe`、相关 DLL 和 `small` 模型；从源码运行时，把 `whisper-cli` 放到 `PATH`（或设置 `POLYKARA_WHISPER`），把 `ggml-*.bin` 放到 `models/`（或设置 `POLYKARA_WHISPER_MODEL` / `alignment.model_path`）。模型选择器默认预留 2 GiB，并在内存预算内选择最好的已安装模型。词时间默认取自 whisper.cpp 的 DTW 词元时间戳（`[alignment] dtw = true`），比普通词元时间更贴近音频；整首歌一次对齐，忽略大小写、标点和繁简差异，允许比歌词行时间早或晚一秒的识别结果归入该行；若歌词文件整体偏早或偏晚（如专辑 LRC 配上前奏更长的视频），会自动测出偏移并整体平移，`lyrics` 步骤会打印该偏移。
 
 ```bash
 polykara-cli normalize

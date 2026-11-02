@@ -134,6 +134,7 @@ small_min_budget_gib = 4
 medium_min_budget_gib = 8
 large_min_budget_gib = 12
 cpu_threads = 0
+dtw = true
 
 [timing]
 long_pause_ms = 30000
