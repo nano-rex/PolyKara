@@ -37,6 +37,9 @@ $files = @(
     @{ Name = "phrases.txt"; Url = "https://raw.githubusercontent.com/mozillazg/phrase-pinyin-data/cee0ed6e6e4898580cafd2bd5e3723e20b214aa0/pinyin.txt"; Sha = "dcc769607c220b312fea3e71cb63421298b4b891b1f7356a95ab58f2c96fff81" },
     @{ Name = "jyutping-trie.txt"; Url = "https://raw.githubusercontent.com/CanCLID/ToJyutping/a692787e9af65b27310580604b1d69b96b2165be/src/ToJyutping/trie.txt"; Sha = "4995ec440243d468a4c816697e7fd9a87b8efbb90e54db119deb78c829a87729" },
     @{ Name = "hepburnhira.utf8"; Url = "https://raw.githubusercontent.com/miurahr/pykakasi/717c52850d240f33b5b87f3a6fa021e07c9c82b5/src/data/hepburnhira.utf8"; Sha = "6f3b3694eef8512123c5132096b076fd8c0d41de80ef306026c2a607061ff568" },
+    @{ Name = "kakasidict.utf8"; Url = "https://raw.githubusercontent.com/miurahr/pykakasi/717c52850d240f33b5b87f3a6fa021e07c9c82b5/src/data/kakasidict.utf8"; Sha = "65c1727f3ca6f07a4fc10d96063dbb8ad842e70142e2ed51dbabc062c121cdca" },
+    @{ Name = "unidict_noun.utf8"; Url = "https://raw.githubusercontent.com/miurahr/pykakasi/717c52850d240f33b5b87f3a6fa021e07c9c82b5/src/data/unidict_noun.utf8"; Sha = "b261fcd635820c8049674c96a2c9ed6530cbfd80355571aaed6fe9c3f0576a85" },
+    @{ Name = "unidict_adj.utf8"; Url = "https://raw.githubusercontent.com/miurahr/pykakasi/717c52850d240f33b5b87f3a6fa021e07c9c82b5/src/data/unidict_adj.utf8"; Sha = "344b6283f8c2596980b66e95852fd75afbc53b627902bc96d8ed91c38bb33081" },
     @{ Name = "itaijidict.utf8"; Url = "https://raw.githubusercontent.com/miurahr/pykakasi/717c52850d240f33b5b87f3a6fa021e07c9c82b5/src/data/itaijidict.utf8"; Sha = "890183324709ed25d834a2b2f51b903876218301df92c9be38f0ae4da4205c44" },
     @{ Name = "TSCharacters.txt"; Url = "https://raw.githubusercontent.com/BYVoid/OpenCC/bcf847cf3fbd79c74779567f9a491ea8ab878183/data/dictionary/TSCharacters.txt"; Sha = "9ff46a7d30e5765375eb13d33f2b03a34d298913caf2b120380679f33ae1642d" }
 )

@@ -82,7 +82,7 @@ jobs:
           $env:POLYKARA_HOME = "$env:RUNNER_TEMP\polykara-home"
           $answer = '{"id": 1, "cmd": "hello"}' | & .\dist\PolyKara\polykara-cli.exe engine
           Write-Host $answer
-          if (-not ($answer -match '"ok": true')) { throw "the engine did not answer" }
+          if (-not ($answer -match '"ok":\s*true')) { throw "the engine did not answer" }
 
       - name: Drive the desktop app (screenshots, timing a word)
         shell: pwsh
