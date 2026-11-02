@@ -289,9 +289,9 @@ pub fn paths() -> Arc<Paths> {
         _ if installed => user_home().join("Documents").join("PolyKara"),
         _ => root.clone(),
     };
-    let paths = Arc::new(Paths::new(home, root));
-    *PATHS.write().unwrap() = Some(paths.clone());
-    paths
+    let mut slot = PATHS.write().unwrap();
+    // Another thread may have set the folders meanwhile (with_home in tests); keep those.
+    slot.get_or_insert_with(|| Arc::new(Paths::new(home, root))).clone()
 }
 
 /// Run `action` with PolyKara's folders in `home` (tests). Calls are serialised.
