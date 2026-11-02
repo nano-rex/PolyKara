@@ -23,8 +23,9 @@ if ($Stage -ne "installer") {
     Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$build\bin\yt-dlp.exe"
 
     # whisper-cli and its model, plus the readings/romanization dictionaries.
+    # A script call does not set $LASTEXITCODE; fetch-data throws on any failure, and
+    # with $ErrorActionPreference = "Stop" that stops this build too.
     & "$PSScriptRoot\fetch-data.ps1" -OutDir "$build\data" -BinDir "$build\bin" -ModelDir "$build\models"
-    if ($LASTEXITCODE -ne 0) { throw "fetch-data failed" }
 
     # Vocal separator for `generate`: stems.cpp (HTDemucs v4 on ggml, MIT), built from
     # source with Visual Studio, plus its GGUF model. Best-effort: a separator build
