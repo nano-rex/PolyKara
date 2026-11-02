@@ -1,6 +1,6 @@
 [package]
 name = "polykara-desktop"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "PolyKara desktop app for Windows: song list, timing editor and settings, driving the pipeline"
 license = "GPL-3.0-or-later"
