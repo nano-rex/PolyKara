@@ -135,6 +135,7 @@ medium_min_budget_gib = 8
 large_min_budget_gib = 12
 cpu_threads = 0
 dtw = true
+vocals = "auto"
 
 [timing]
 long_pause_ms = 30000

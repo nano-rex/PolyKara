@@ -160,6 +160,34 @@ pub fn separate(sid: &str, input: &Path, dry_run: bool) -> Result<PathBuf, Strin
     Ok(vocals)
 }
 
+/// The song's isolated vocal when it exists and is not older than the song's media.
+pub fn fresh_vocals(sid: &str) -> Option<PathBuf> {
+    let vocals = vocals_path(sid);
+    let made = std::fs::metadata(&vocals).and_then(|meta| meta.modified()).ok()?;
+    let media = crate::manifest::source(sid).ok()?;
+    let source = std::fs::metadata(&media).and_then(|meta| meta.modified()).ok()?;
+    (made >= source).then_some(vocals)
+}
+
+/// Isolate the vocal of the song's media: a clean stereo wav goes through the
+/// separator into work/vocals/<id>.wav, which is returned.
+pub fn isolate(sid: &str, dry_run: bool) -> Result<PathBuf, String> {
+    let media = crate::manifest::source(sid)?;
+    let input = paths().work.join("vocals").join(format!("{sid}.input.wav"));
+    if !dry_run {
+        std::fs::create_dir_all(paths().work.join("vocals")).map_err(|error| error.to_string())?;
+        let args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-y", "-i"]
+            .iter()
+            .map(|item| item.to_string())
+            .chain(std::iter::once(media.display().to_string()))
+            .chain(["-vn", "-ac", "2", "-ar", "44100"].iter().map(|item| item.to_string()))
+            .chain(std::iter::once(input.display().to_string()))
+            .collect();
+        config::run("ffmpeg", &args, false, None)?;
+    }
+    separate(sid, &input, dry_run)
+}
+
 /// Find the isolated-vocal audio file under `dir`. Prefers an exact "vocals"/"vocal"
 /// stem and never returns the "no_vocals" / instrumental stem.
 fn find_vocal_stem(dir: &Path) -> Option<PathBuf> {

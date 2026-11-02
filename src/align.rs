@@ -279,6 +279,33 @@ fn dtw_preset(model_file: &Path) -> Option<&'static str> {
     })
 }
 
+/// The isolated vocal to time words on, per [alignment] vocals: "auto" uses one
+/// `generate` already made, "always" also isolates it first (slow; needs the
+/// separator), "never" keeps the full mix. Without music under it, whisper.cpp
+/// hears sung words more reliably and places them more exactly.
+fn vocal_audio(row: &Row, dry_run: bool) -> Option<PathBuf> {
+    let sid = get(row, "id");
+    let mode = config::load_config().get("alignment").str_or("vocals", "auto").trim().to_lowercase();
+    if mode == "never" {
+        return None;
+    }
+    if let Some(vocals) = crate::separate::fresh_vocals(sid) {
+        return Some(vocals);
+    }
+    if mode != "always" || !crate::separate::available() {
+        return None;
+    }
+    println!("{sid}: isolating the vocal for word timing");
+    match crate::separate::isolate(sid, dry_run) {
+        Ok(vocals) if dry_run || vocals.exists() => Some(vocals),
+        Ok(_) => None,
+        Err(error) => {
+            println!("WARN {sid}: the vocal could not be isolated ({error}); using the full mix");
+            None
+        }
+    }
+}
+
 /// Time one song's words with whisper.cpp, priming it with the known lyrics.
 pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
     let sid = get(row, "id");
@@ -291,7 +318,21 @@ pub fn align_row(row: &Row, dry_run: bool) -> Result<(), String> {
     if prompt.is_some() {
         println!("{sid}: priming word timing with the known lyrics");
     }
-    let timing = match transcribe(row, &audio, &language, &base, prompt.as_deref(), dry_run)? {
+    let vocals = vocal_audio(row, dry_run);
+    let timing = match &vocals {
+        Some(vocals) => {
+            println!("{sid}: timing words on the isolated vocal ({})", vocals.display());
+            match transcribe(row, vocals, &language, &base, prompt.as_deref(), dry_run) {
+                Ok(timing) => timing,
+                Err(error) => {
+                    println!("WARN {sid}: word timing on the isolated vocal failed ({error}); using the full mix");
+                    transcribe(row, &audio, &language, &base, prompt.as_deref(), dry_run)?
+                }
+            }
+        }
+        None => transcribe(row, &audio, &language, &base, prompt.as_deref(), dry_run)?,
+    };
+    let timing = match timing {
         Some(timing) => timing,
         None => return Ok(()),
     };

@@ -154,6 +154,9 @@ cpu_threads = 0
 num_workers = 1
 # Word times from whisper.cpp DTW token timestamps (much closer to the audio); false uses its plain offsets.
 dtw = true
+# Time words on the isolated vocal: "auto" uses one `generate` already made, "always" also
+# isolates it first (slower; needs the separator), "never" uses the full mix.
+vocals = "auto"
 
 [editor]
 # The Subtitle editor's starting reaction delay (ms): live key presses are timed

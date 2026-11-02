@@ -498,11 +498,41 @@ pub fn timestamp(value: i64) -> String {
     format!("{:02}:{:02}", value / 60000, value / 1000 % 60)
 }
 
+/// Share of a timed file's lines with at least one word recognised where the line is.
+fn line_fit(entries: &[Entry], units: &[subtitle::Unit], max_tail: i64, tail_hold: i64) -> f64 {
+    let mut estimated = Vec::new();
+    let timed = subtitle::time_entries(entries, units, max_tail, tail_hold, &mut estimated);
+    let sung = timed.iter().filter(|entry| !entry.words.is_empty()).count();
+    if sung == 0 {
+        return 0.0;
+    }
+    (sung - estimated.len().min(sung)) as f64 / sung as f64
+}
+
+/// A timed lyric file that agrees with the primary and fits the recording clearly
+/// better (more of its lines heard where they are), or None. Files chosen by hand
+/// (the editor's, a lyrics_file) and files with their own word timing are kept.
+fn best_fitting<'a>(report: &'a LyricCheck, primary: &verify::LyricFile, units: &[subtitle::Unit], max_tail: i64, tail_hold: i64) -> Option<&'a verify::LyricFile> {
+    let untimed = |file: &verify::LyricFile| file.kind != Kind::Plain && file.entries.iter().all(|entry| entry.words.is_empty());
+    if matches!(primary.name.as_str(), "editor" | "manifest") || !untimed(primary) {
+        return None;
+    }
+    let own = line_fit(&primary.entries, units, max_tail, tail_hold);
+    report
+        .files
+        .iter()
+        .filter(|file| file.agrees && untimed(file) && !report.is_primary(file))
+        .map(|file| (file, line_fit(&file.entries, units, max_tail, tail_hold)))
+        .filter(|(_, fit)| *fit >= own + 0.1)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(file, _)| file)
+}
+
 fn lyrics_song(row: &Row, dry_run: bool) -> Step {
     let sid = get(row, "id");
     let report = verify::check_lyrics(row).map_err(fail)?;
     let primary = report.primary().cloned().ok_or_else(|| Failure::Skip(NO_LYRICS.into()))?;
-    let (kind, label, path) = (primary.kind.clone(), primary.label.clone(), primary.path.clone());
+    let (kind, mut label, path) = (primary.kind.clone(), primary.label.clone(), primary.path.clone());
     let mut entries = primary.entries.clone();
     let mut estimated: Vec<i64> = Vec::new();
     // The accuracy check comes first: it must be visible even when alignment later fails.
@@ -533,6 +563,13 @@ fn lyrics_song(row: &Row, dry_run: bool) -> Step {
         println!("{sid}: {:.0}% of the lyric words were also recognised in the audio", audio * 100.0);
         if !dry_run {
             save_check(sid, &report, Some(audio));
+        }
+        // Among timed files that agree on the words, use the one whose lines fit the recording best.
+        let (max_tail, tail_hold) = (timing.int_or("max_tail_ms", 0), timing.int_or("tail_hold_ms", 1000));
+        if let Some(better) = best_fitting(&report, &primary, &units, max_tail, tail_hold) {
+            println!("{sid}: {} fits the recording better than {}; using it", better.label, label);
+            entries = better.entries.clone();
+            label = better.label.clone();
         }
         if matches!(kind, Kind::Plain) {
             let text = subtitle::read_text(&path).map_err(fail)?;
@@ -624,21 +661,8 @@ fn generate_song(row: &Row, dry_run: bool) -> Step {
     download_lyrics(row, dry_run, false).map_err(fail)?;
     let online_primary = verify::check_lyrics(row).map_err(fail)?.primary().cloned();
 
-    // 2. Isolate the vocal from the source media, through a clean stereo wav.
-    let media = source(sid).map_err(fail)?;
-    let input = paths().work.join("vocals").join(format!("{sid}.input.wav"));
-    if !dry_run {
-        std::fs::create_dir_all(paths().work.join("vocals")).map_err(|error| fail(error.to_string()))?;
-        let args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-y", "-i"]
-            .iter()
-            .map(|item| item.to_string())
-            .chain(std::iter::once(media.display().to_string()))
-            .chain(["-vn", "-ac", "2", "-ar", "44100"].iter().map(|item| item.to_string()))
-            .chain(std::iter::once(input.display().to_string()))
-            .collect();
-        config::run("ffmpeg", &args, false, None).map_err(fail)?;
-    }
-    let vocals = separate::separate(sid, &input, dry_run).map_err(fail)?;
+    // 2. Isolate the vocal from the source media.
+    let vocals = separate::isolate(sid, dry_run).map_err(fail)?;
 
     // 3. Transcribe the vocal, unbiased (no lyric prompt), so it is an independent witness.
     let base = paths().work.join("whisper").join(format!("{sid}.vocal"));
@@ -1209,5 +1233,39 @@ pub fn selftest() -> i32 {
     } else {
         println!("SELFTEST FAILED: {}", problems.join("; "));
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::verify::{check_files, comparison_tokens, LyricFile};
+
+    fn timed_file(name: &str, lines: &[(i64, &str)]) -> LyricFile {
+        let entries: Vec<Entry> = lines.iter().map(|(start, text)| Entry::new(*start, start + 3000, *text, vec![])).collect();
+        let text: Vec<&str> = lines.iter().map(|line| line.1).collect();
+        LyricFile { name: name.into(), label: name.into(), kind: Kind::Lrc, path: PathBuf::from(name), entries, tokens: comparison_tokens(&text.join(" ")), score: 1.0, agrees: true }
+    }
+
+    #[test]
+    fn the_file_that_fits_the_recording_is_used() {
+        let lines = ["walking down the road tonight", "every light is shining bright", "holding on to what we know", "never ever letting go"];
+        let units: Vec<subtitle::Unit> = lines
+            .iter()
+            .enumerate()
+            .flat_map(|(line, text)| text.split(' ').enumerate().map(move |(word, key)| (line as i64 * 3000 + word as i64 * 400, line as i64 * 3000 + word as i64 * 400 + 300, key.to_string())))
+            .collect();
+        // Same words, but the first file's lines are timed against another cut of the song.
+        let scrambled = timed_file("lrclib", &[(0, lines[0]), (20_000, lines[1]), (6000, lines[2]), (40_000, lines[3])]);
+        let good = timed_file("netease", &[(0, lines[0]), (3000, lines[1]), (6000, lines[2]), (9000, lines[3])]);
+        let report = check_files(vec![scrambled, good], 2, 0.6, false);
+        let primary = report.primary().unwrap().clone();
+        assert_eq!(primary.name, "lrclib");
+        let better = best_fitting(&report, &primary, &units, 0, 1000).expect("the better-timed file is chosen");
+        assert_eq!(better.name, "netease");
+        // A file chosen in the editor is never replaced.
+        let mut edited = primary.clone();
+        edited.name = "editor".into();
+        assert!(best_fitting(&report, &edited, &units, 0, 1000).is_none());
     }
 }
