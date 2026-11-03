@@ -184,6 +184,21 @@ pub struct TCITEMW {
 }
 
 #[repr(C)]
+pub struct BITMAPINFOHEADER {
+    pub biSize: u32,
+    pub biWidth: i32,
+    pub biHeight: i32,
+    pub biPlanes: u16,
+    pub biBitCount: u16,
+    pub biCompression: u32,
+    pub biSizeImage: u32,
+    pub biXPelsPerMeter: i32,
+    pub biYPelsPerMeter: i32,
+    pub biClrUsed: u32,
+    pub biClrImportant: u32,
+}
+
+#[repr(C)]
 pub struct SCROLLINFO {
     pub cbSize: u32,
     pub fMask: u32,
@@ -419,6 +434,8 @@ pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: isize = -4;
 // Drawing
 pub const TRANSPARENT: i32 = 1;
 pub const SRCCOPY: u32 = 0x00CC_0020;
+pub const DIB_RGB_COLORS: u32 = 0;
+pub const HALFTONE: i32 = 4;
 pub const DC_BRUSH: i32 = 18;
 pub const DC_PEN: i32 = 19;
 pub const NULL_BRUSH: i32 = 5;
@@ -500,6 +517,8 @@ extern "system" {
     pub fn DeleteObject(object: HGDIOBJ) -> BOOL;
     pub fn DeleteDC(hdc: HDC) -> BOOL;
     pub fn BitBlt(hdc: HDC, x: i32, y: i32, width: i32, height: i32, source: HDC, sx: i32, sy: i32, rop: u32) -> BOOL;
+    pub fn StretchDIBits(hdc: HDC, x: i32, y: i32, dw: i32, dh: i32, sx: i32, sy: i32, sw: i32, sh: i32, bits: *const c_void, info: *const BITMAPINFOHEADER, usage: u32, rop: u32) -> i32;
+    pub fn SetStretchBltMode(hdc: HDC, mode: i32) -> i32;
     pub fn GetStockObject(index: i32) -> HGDIOBJ;
     pub fn SetDCBrushColor(hdc: HDC, colour: COLORREF) -> COLORREF;
     pub fn SetDCPenColor(hdc: HDC, colour: COLORREF) -> COLORREF;

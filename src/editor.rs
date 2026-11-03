@@ -14,7 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use polykara::json::Value;
 use polykara::model::{self, clock, lines_from_json, lines_json, KeyMode, Line, Place, Session, MIN_TOKEN_MS, OPEN_TOKEN_MS};
 use polykara::player::Player;
-use polykara::tools::waveform;
+use polykara::tools::{thumbnails, waveform, Film};
 
 use crate::app::{Shared, Song, Want, DIALOG_CLASS, IDCANCEL, IDOK, PANE_CLASS, PLAY_TIMER};
 use crate::win::{self, ffi::*, rgb, Canvas};
@@ -24,15 +24,22 @@ const MODES: &[(&str, KeyMode)] = &[("Hold (press = start, release = end)", KeyM
 const LYRIC_FACE: &str = "Microsoft YaHei UI";
 const HELP: &str = "Enter: play / pause    Hold Space: time the highlighted word    Backspace: undo the last word and go back    \
 ←/→: 3 s back / forward    ↑/↓: previous / next line    Shift+←/→: nudge the selected word 10 ms    Ctrl+Shift+←/→: shift the whole line 10 ms    Ctrl+Z: undo    Ctrl+S: save";
-// Timeline rows at 96 DPI: ruler, waveform, words, lines.
+// Timeline at 96 DPI: a fixed track-name column on the left, a ruler across the
+// top, then one lane per track — video thumbnails, the audio waveform, the timed
+// subtitle words, and the subtitle lines.
+const GUTTER: i32 = 62;
 const RULER: i32 = 18;
-const WAVE_TOP: i32 = 22;
-const WAVE_BOTTOM: i32 = 112;
-const WORD_TOP: i32 = 116;
-const WORD_BOTTOM: i32 = 146;
-const LINE_TOP: i32 = 150;
-const LINE_BOTTOM: i32 = 166;
-const TIMELINE_HEIGHT: i32 = LINE_BOTTOM + 6 + 18;
+const VIDEO_TOP: i32 = RULER + 3;
+const VIDEO_BOTTOM: i32 = VIDEO_TOP + 38;
+const WAVE_TOP: i32 = VIDEO_BOTTOM + 4;
+const WAVE_BOTTOM: i32 = WAVE_TOP + 78;
+const WORD_TOP: i32 = WAVE_BOTTOM + 4;
+const WORD_BOTTOM: i32 = WORD_TOP + 30;
+const LINE_TOP: i32 = WORD_BOTTOM + 4;
+const LINE_BOTTOM: i32 = LINE_TOP + 18;
+// The lanes, each with its label, for the track-name column and the dividers.
+const LANES: &[(&str, i32, i32)] = &[("Video", VIDEO_TOP, VIDEO_BOTTOM), ("Audio", WAVE_TOP, WAVE_BOTTOM), ("Subtitles", WORD_TOP, WORD_BOTTOM), ("Lines", LINE_TOP, LINE_BOTTOM)];
+const TIMELINE_HEIGHT: i32 = LINE_BOTTOM + 8;
 const EDGE_PX: i32 = 5;
 
 const ID_SONG: u16 = 201;
@@ -43,6 +50,7 @@ const ID_TEXT: u16 = 205;
 const ID_READINGS: u16 = 206;
 const ID_UNDO: u16 = 207;
 const ID_CLEAR: u16 = 208;
+const ID_GENERATE: u16 = 209;
 const ID_PLAY: u16 = 210;
 const ID_SPEED: u16 = 212;
 const ID_KEYS: u16 = 213;
@@ -160,6 +168,7 @@ pub struct EditorPage {
     duration: i64,
     peaks: Vec<u16>,
     peak_max: u16,
+    film: Film,
     playhead: i64,
     was_playing: bool,
     language: String,
@@ -180,6 +189,9 @@ pub struct EditorPage {
     left: i32,
     drag: Option<Drag>,
     waves: (Sender<(String, Vec<u16>)>, Receiver<(String, Vec<u16>)>),
+    films: (Sender<(String, Film)>, Receiver<(String, Film)>),
+    /// The song whose lyrics a Generate run is producing, to reload when it ends.
+    generating: Option<String>,
     dialog: Option<Dialog>,
 }
 
@@ -194,7 +206,7 @@ impl EditorPage {
         let main = shared.main;
         let song_label = shared.styled(win::label(main, "Song"));
         let song = shared.styled(win::combo(main, ID_SONG, &[], false));
-        let buttons: Vec<HWND> = [(ID_SAVE, "Save"), (ID_BUILD, "Save and make subtitles"), (ID_PREVIEW, "Preview on video"), (ID_TEXT, "Lyrics text…"), (ID_READINGS, "Word readings…"), (ID_UNDO, "Undo"), (ID_CLEAR, "Clear line timing")]
+        let buttons: Vec<HWND> = [(ID_SAVE, "Save"), (ID_BUILD, "Save and make subtitles"), (ID_PREVIEW, "Preview on video"), (ID_GENERATE, "Generate subtitles"), (ID_TEXT, "Lyrics text…"), (ID_READINGS, "Word readings…"), (ID_UNDO, "Undo"), (ID_CLEAR, "Clear line timing")]
             .iter()
             .map(|(id, text)| shared.styled(win::button(main, *id, text)))
             .collect();
@@ -261,6 +273,7 @@ impl EditorPage {
             duration: 0,
             peaks: Vec::new(),
             peak_max: 1,
+            film: Film { width: 64, height: 36, interval: 2000, frames: Vec::new() },
             playhead: 0,
             was_playing: false,
             language: String::new(),
@@ -281,6 +294,8 @@ impl EditorPage {
             left: 0,
             drag: None,
             waves: channel(),
+            films: channel(),
+            generating: None,
             dialog: None,
         };
         page.make_fonts();
@@ -462,6 +477,7 @@ impl EditorPage {
         self.edited_ass = PathBuf::from(value.get("edited_ass").str());
         self.peaks.clear();
         self.peak_max = 1;
+        self.film.frames.clear();
         self.duration = 0;
         self.playhead = 0;
         self.left = 0;
@@ -487,8 +503,11 @@ impl EditorPage {
             }
         }
         if self.session.lines.is_empty() {
-            shared.info("No lyrics were found for this song. Paste them in the next window, then time them while the song plays.");
-            self.edit_text(shared);
+            shared.info(
+                "No lyrics yet for this song.\n\n\
+                 Press \u{201c}Generate subtitles\u{201d} to find the lyrics online, isolate the vocal and transcribe it automatically.\n\n\
+                 Or press \u{201c}Lyrics text\u{2026}\u{201d} to paste them in yourself, then time them while the song plays.",
+            );
         }
     }
 
@@ -550,10 +569,19 @@ impl EditorPage {
                         let media = PathBuf::from(value.get("media").str());
                         self.duration = value.get("duration").as_i64().unwrap_or(0);
                         self.media = Some(media.clone());
-                        let (ffmpeg, sender, wake) = (self.ffmpeg.clone(), self.waves.0.clone(), shared.wake.clone());
+                        let duration = self.duration;
+                        {
+                            let (ffmpeg, media, sid, sender, wake) = (self.ffmpeg.clone(), media.clone(), sid.clone(), self.waves.0.clone(), shared.wake.clone());
+                            std::thread::spawn(move || {
+                                let peaks = waveform(&ffmpeg, &media).unwrap_or_default();
+                                let _ = sender.send((sid, peaks));
+                                wake();
+                            });
+                        }
+                        let (ffmpeg, sender, wake) = (self.ffmpeg.clone(), self.films.0.clone(), shared.wake.clone());
                         std::thread::spawn(move || {
-                            let peaks = waveform(&ffmpeg, &media).unwrap_or_default();
-                            let _ = sender.send((sid, peaks));
+                            let film = thumbnails(&ffmpeg, &media, duration).unwrap_or(Film { width: 64, height: 36, interval: 2000, frames: Vec::new() });
+                            let _ = sender.send((sid, film));
                             wake();
                         });
                         self.redraw_all();
@@ -641,12 +669,18 @@ impl EditorPage {
         false
     }
 
-    /// Waveforms finished in the background.
+    /// Waveforms and video thumbnails finished in the background.
     pub fn poll(&mut self) {
         while let Ok((sid, peaks)) = self.waves.1.try_recv() {
             if self.sid.as_deref() == Some(sid.as_str()) {
                 self.peak_max = peaks.iter().copied().max().unwrap_or(1).max(1);
                 self.peaks = peaks;
+                win::redraw(self.timeline);
+            }
+        }
+        while let Ok((sid, film)) = self.films.1.try_recv() {
+            if self.sid.as_deref() == Some(sid.as_str()) {
+                self.film = film;
                 win::redraw(self.timeline);
             }
         }
@@ -928,7 +962,7 @@ impl EditorPage {
                     ID_PLAY => self.toggle(shared),
                     ID_ZOOM_IN => self.zoom(1.5, None),
                     ID_ZOOM_OUT => self.zoom(1.0 / 1.5, None),
-                    _ if self.sid.is_none() && [ID_SAVE, ID_BUILD, ID_PREVIEW, ID_TEXT, ID_READINGS, ID_UNDO, ID_CLEAR].contains(&id) => shared.info("Choose a song first."),
+                    _ if self.sid.is_none() && [ID_SAVE, ID_BUILD, ID_PREVIEW, ID_GENERATE, ID_TEXT, ID_READINGS, ID_UNDO, ID_CLEAR].contains(&id) => shared.info("Choose a song first."),
                     ID_SAVE => {
                         self.save(Then::Nothing, shared);
                     }
@@ -940,6 +974,7 @@ impl EditorPage {
                         let at = format!("{:.2}", (self.playhead - 2000).max(0) as f64 / 1000.0);
                         self.save(Then::Preview(at), shared);
                     }
+                    ID_GENERATE => self.generate(shared),
                     ID_TEXT => self.edit_text(shared),
                     ID_READINGS => self.edit_readings(shared),
                     ID_UNDO => self.undo(),
@@ -955,6 +990,55 @@ impl EditorPage {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Generate the lyrics automatically (find online, isolate the vocal, transcribe),
+    /// so they need not be typed. The run shows on the Songs tab; when it ends the
+    /// song is reloaded so the new lyrics and timing appear here.
+    fn generate(&mut self, shared: &mut Shared) {
+        let sid = match &self.sid {
+            Some(sid) => sid.clone(),
+            None => return,
+        };
+        if self.language.trim().is_empty() {
+            shared.info("Set the song's language on the Songs tab before generating subtitles.");
+            return;
+        }
+        if self.media.is_none() {
+            shared.info(&format!("{sid} has not been downloaded yet. Run Download for it on the Songs tab first."));
+            return;
+        }
+        if self.session.dirty && self.confirm_discard(shared) != Some(true) {
+            return;
+        }
+        if !win::confirm(
+            shared.main,
+            "Generate the subtitles automatically?\n\n\
+             PolyKara searches for the lyrics online, isolates the vocal and transcribes it. \
+             This can take a few minutes \u{2014} watch the log on the Songs tab. \
+             The editor reloads when it finishes.",
+        ) {
+            return;
+        }
+        if shared.start(vec!["generate".into(), sid.clone()]) {
+            self.generating = Some(sid);
+            shared.set_status("Generating subtitles\u{2026} (log on the Songs tab). The editor will reload when it finishes.");
+        }
+    }
+
+    /// A pipeline run ended: if it was a Generate for the song shown here, reload it
+    /// so the freshly generated lyrics appear.
+    pub fn run_finished(&mut self, shared: &mut Shared) {
+        let sid = match self.generating.take() {
+            Some(sid) => sid,
+            None => return,
+        };
+        if self.sid.as_deref() == Some(sid.as_str()) {
+            // Drop the current (empty) lyrics so open() reloads them from disk.
+            self.sid = None;
+            self.session = Session::default();
+            self.open(&sid, shared);
         }
     }
 
@@ -1360,22 +1444,33 @@ impl EditorPage {
         (x as f64 * 1000.0 / self.pps) as i64
     }
 
+    /// Width of the fixed track-name column on the left.
+    fn gutter(&self) -> i32 {
+        self.px(GUTTER)
+    }
+
+    /// Timeline position in ms for a point in the pane (right of the track-name column).
+    fn ms_at(&self, x: i32) -> i64 {
+        self.ms_of((x - self.gutter()).max(0) + self.left)
+    }
+
     fn timeline_end(&self) -> i64 {
         let last = self.session.lines.iter().filter_map(Line::span).map(|(_, end)| end).max().unwrap_or(0);
         self.duration.max(last + 5000)
     }
 
     fn follow(&mut self, ms: i64, force: bool) {
-        let width = win::client_size(self.timeline).0;
+        let width = (win::client_size(self.timeline).0 - self.gutter()).max(1);
         let x = self.x_of(ms) - self.left;
         if force || x < 0 || x > width * 85 / 100 {
             self.left = (self.x_of(ms) - width / 5).max(0);
         }
     }
 
+    /// Zoom around a point; `around` is measured from the left of the content area.
     fn zoom(&mut self, factor: f64, around: Option<i32>) {
-        let width = win::client_size(self.timeline).0;
-        let around = around.unwrap_or(width / 2);
+        let width = (win::client_size(self.timeline).0 - self.gutter()).max(1);
+        let around = around.unwrap_or(width / 2).max(0);
         let anchor = self.ms_of(self.left + around);
         let scale = self.dpi as f64 / 96.0;
         self.pps = (self.pps * factor).clamp(20.0 * scale, 1500.0 * scale);
@@ -1408,27 +1503,65 @@ impl EditorPage {
         let dpi = self.dpi as i32;
         let px = move |value: i32| value * dpi / 96;
         let (width, height) = (canvas.width, canvas.height);
+        let g = self.gutter();
+        let view = (width - g).max(1);
         let total = self.x_of(self.timeline_end()) + px(50);
-        self.left = win::set_scroll(self.timeline, SB_HORZ, total, width, self.left);
+        self.left = win::set_scroll(self.timeline, SB_HORZ, total, view, self.left);
         let left = self.left;
+        // Content millisecond `ms` is drawn at `off + x_of(ms)`, to the right of the column.
+        let off = g - left;
         canvas.fill(0, 0, width, height, rgb(0x1e, 0x23, 0x28));
-        let (start_ms, end_ms) = (self.ms_of(left), self.ms_of(left + width));
+
+        // A shaded lane behind each track, with a divider above it.
+        for (index, (_, top, bottom)) in LANES.iter().enumerate() {
+            let shade = if index % 2 == 0 { rgb(0x23, 0x2a, 0x30) } else { rgb(0x1a, 0x1f, 0x24) };
+            canvas.fill(g, px(*top), width, px(*bottom), shade);
+            canvas.line(g, px(*top) - px(2), width, px(*top) - px(2), rgb(0x13, 0x17, 0x1a));
+        }
+
+        // The ruler across the top, right of the track-name column.
+        let (start_ms, end_ms) = (self.ms_of(left), self.ms_of(left + view));
         let step = [100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].iter().copied().find(|step| self.x_of(*step) >= px(60)).unwrap_or(60000);
         canvas.use_font(self.ruler_font);
         let mut tick = start_ms - start_ms % step;
         while tick <= end_ms + step {
-            let x = self.x_of(tick) - left;
-            canvas.line(x, 0, x, px(RULER) - px(4), rgb(0x55, 0x55, 0x66));
-            let label = clock(tick);
-            canvas.text(x + px(3), 0, if step >= 1000 { &label[..5] } else { &label[..label.len() - 1] }, rgb(0x88, 0x88, 0x99));
+            let x = off + self.x_of(tick);
+            if x >= g {
+                canvas.line(x, 0, x, px(RULER) - px(4), rgb(0x55, 0x55, 0x66));
+                let label = clock(tick);
+                canvas.text(x + px(3), 0, if step >= 1000 { &label[..5] } else { &label[..label.len() - 1] }, rgb(0x88, 0x88, 0x99));
+            }
             tick += step;
         }
+
+        // Video track: a filmstrip of thumbnails, each stretched across its own slice of time.
+        let (vtop, vbot) = (px(VIDEO_TOP), px(VIDEO_BOTTOM));
+        if self.film.frames.is_empty() {
+            canvas.use_font(self.small_font);
+            let note = if self.media.is_some() { "(no video preview)" } else { "" };
+            canvas.text_in(g + px(6), vtop, width, vbot, note, rgb(0x5a, 0x66, 0x6e), false);
+        } else {
+            let interval = self.film.interval.max(1);
+            let (fw, fh, lane_h) = (self.film.width, self.film.height, vbot - vtop);
+            let saved = canvas.clip(g, vtop, width, vbot);
+            for (index, frame) in self.film.frames.iter().enumerate() {
+                let start = index as i64 * interval;
+                let (x1, x2) = (off + self.x_of(start), off + self.x_of(start + interval));
+                if x2 < g || x1 > width {
+                    continue;
+                }
+                canvas.image(x1, vtop, (x2 - x1).max(1), lane_h, fw, fh, frame);
+            }
+            canvas.unclip(saved);
+        }
+
+        // Audio track: the waveform.
         if !self.peaks.is_empty() {
             let (middle, half) = ((px(WAVE_TOP) + px(WAVE_BOTTOM)) / 2, (px(WAVE_BOTTOM) - px(WAVE_TOP)) / 2);
-            let mut x = 0;
+            let mut x = g;
             while x < width {
-                let low = (self.ms_of(left + x) / 10).max(0) as usize;
-                let high = ((self.ms_of(left + x + 2) / 10) as usize).max(low + 1);
+                let low = (self.ms_of(x - off) / 10).max(0) as usize;
+                let high = ((self.ms_of(x - off + 2) / 10) as usize).max(low + 1);
                 let peak = self.peaks.get(low..high.min(self.peaks.len())).and_then(|chunk| chunk.iter().copied().max()).unwrap_or(0);
                 let level = (peak as i64 * half as i64 / self.peak_max as i64) as i32;
                 if level > 0 {
@@ -1437,6 +1570,8 @@ impl EditorPage {
                 x += 2;
             }
         }
+
+        // Subtitle tracks: the timed words, and the lines below them.
         for li in self.drawing_order() {
             let line = self.session.lines[li].clone();
             let (span_start, span_end) = match line.span() {
@@ -1447,14 +1582,14 @@ impl EditorPage {
                 continue;
             }
             let guessed = !line.started();
-            let (x1, x2) = (self.x_of(span_start) - left, self.x_of(span_end) - left);
+            let (x1, x2) = (off + self.x_of(span_start), off + self.x_of(span_end));
             if guessed {
                 canvas.dotted_rect(x1, px(LINE_TOP), x2, px(LINE_BOTTOM), rgb(0x60, 0x7d, 0x8b));
             } else {
                 canvas.rect(x1, px(LINE_TOP), x2, px(LINE_BOTTOM), Some(rgb(0x37, 0x47, 0x4f)), rgb(0x60, 0x7d, 0x8b));
             }
             canvas.use_font(self.small_font);
-            let saved = canvas.clip(x1, px(LINE_TOP), x2.max(x1 + px(200)), px(LINE_BOTTOM));
+            let saved = canvas.clip(x1.max(g), px(LINE_TOP), x2.max(x1 + px(200)), px(LINE_BOTTOM));
             canvas.text_in(x1 + px(3), px(LINE_TOP), x2.max(x1 + px(400)), px(LINE_BOTTOM), &format!("{}. {}", li + 1, line.text()), if guessed { rgb(0x78, 0x90, 0x9c) } else { rgb(0xcf, 0xd8, 0xdc) }, false);
             canvas.unclip(saved);
             for ti in 0..line.tokens.len() {
@@ -1472,24 +1607,38 @@ impl EditorPage {
                 } else {
                     rgb(0x15, 0x65, 0xc0)
                 };
-                let (x1, x2) = (self.x_of(start) - left, self.x_of(end) - left);
+                let (x1, x2) = (off + self.x_of(start), off + self.x_of(end));
                 canvas.rect(x1, px(WORD_TOP), x2.max(x1 + 2), px(WORD_BOTTOM), Some(fill), rgb(0xe0, 0xe0, 0xe0));
                 if x2 - x1 > px(10) {
                     canvas.text_in(x1, px(WORD_TOP), x2, px(WORD_BOTTOM), token.text.trim(), rgb(255, 255, 255), true);
                 }
             }
         }
+
+        // The play position, drawn only where it is inside the tracks.
         let position = self.position();
-        let x = self.x_of(position) - left;
-        canvas.fill(x - 1, 0, x + 1, px(LINE_BOTTOM) + px(6), rgb(0xff, 0x52, 0x52));
+        let x = off + self.x_of(position);
+        if x >= g {
+            canvas.fill(x - 1, 0, x + 1, px(LINE_BOTTOM) + px(6), rgb(0xff, 0x52, 0x52));
+        }
+
+        // The track-name column on top, so nothing scrolls under it.
+        canvas.fill(0, 0, g, height, rgb(0x15, 0x1a, 0x1e));
+        canvas.line(g, 0, g, height, rgb(0x34, 0x3c, 0x43));
+        canvas.use_font(self.small_font);
+        for (name, top, bottom) in LANES {
+            canvas.text_in(px(6), px(*top), g - px(4), px(*bottom), name, rgb(0xb2, 0xbe, 0xc6), false);
+        }
+        canvas.use_font(self.ruler_font);
+        canvas.text(px(6), px(2), "Time", rgb(0x77, 0x77, 0x88));
     }
 
-    /// The word under a timeline point (in timeline coordinates).
+    /// The word under a point in the timeline pane.
     fn word_at(&mut self, x: i32, y: i32) -> Option<Place> {
-        if !(self.px(WORD_TOP)..=self.px(WORD_BOTTOM)).contains(&y) {
+        if !(self.px(WORD_TOP)..=self.px(WORD_BOTTOM)).contains(&y) || x < self.gutter() {
             return None;
         }
-        let x = x + self.left;
+        let x = x - self.gutter() + self.left;
         let mut found = None;
         for li in self.drawing_order() {
             for ti in 0..self.session.lines[li].tokens.len() {
@@ -1505,7 +1654,7 @@ impl EditorPage {
     }
 
     fn edge(&self, place: Place, x: i32) -> Part {
-        let x = x + self.left;
+        let x = x - self.gutter() + self.left;
         match model::token(&self.session.lines, Some(place)) {
             Some(token) if token.timed() => {
                 if (x - self.x_of(token.start.unwrap_or(0))).abs() <= self.px(EDGE_PX) {
@@ -1528,8 +1677,13 @@ impl EditorPage {
         let place = match self.word_at(x, y) {
             Some(place) => place,
             None => {
+                self.drag = None;
+                // Clicks in the track-name column do not move the play position.
+                if x < self.gutter() {
+                    return;
+                }
                 if (self.px(LINE_TOP)..=self.px(LINE_BOTTOM)).contains(&y) {
-                    let ms = self.ms_of(x + self.left);
+                    let ms = self.ms_at(x);
                     let hit = self.drawing_order().into_iter().rev().find(|li| matches!(self.session.lines[*li].span(), Some((start, end)) if start <= ms && ms <= end));
                     if let Some(li) = hit {
                         self.session.cursor = Some((li, 0));
@@ -1537,8 +1691,7 @@ impl EditorPage {
                         self.scroll_to = self.session.cursor;
                     }
                 }
-                self.drag = None;
-                let at = self.ms_of(x + self.left);
+                let at = self.ms_at(x);
                 self.seek(at, shared);
                 return;
             }
@@ -1647,7 +1800,7 @@ impl EditorPage {
                             GetCursorPos(&mut point);
                             ScreenToClient(hwnd, &mut point);
                         }
-                        self.zoom(if delta > 0 { 1.25 } else { 0.8 }, Some(point.x));
+                        self.zoom(if delta > 0 { 1.25 } else { 0.8 }, Some(point.x - self.gutter()));
                     } else {
                         self.left = (self.left - delta * self.px(90) / 120).max(0);
                         win::redraw(hwnd);

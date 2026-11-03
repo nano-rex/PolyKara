@@ -54,6 +54,55 @@ pub fn waveform(ffmpeg: &Path, media: &Path) -> std::io::Result<Vec<u16>> {
     Ok(peaks(&bytes, RATE, 10))
 }
 
+/// A filmstrip of the video: evenly spaced thumbnails for the editor timeline.
+pub struct Film {
+    /// Width of each frame in pixels (a multiple of 4 so DIB rows need no padding).
+    pub width: i32,
+    /// Height of each frame in pixels.
+    pub height: i32,
+    /// Milliseconds between the start of one frame and the next.
+    pub interval: i64,
+    /// Each frame, top-down BGR, `width * height * 3` bytes.
+    pub frames: Vec<Vec<u8>>,
+}
+
+/// Decode evenly spaced thumbnails from the video with ffmpeg, for the timeline's
+/// video track. Returns no frames when the media has no usable video stream.
+pub fn thumbnails(ffmpeg: &Path, media: &Path, duration_ms: i64) -> std::io::Result<Film> {
+    const WIDTH: i32 = 64;
+    const HEIGHT: i32 = 36;
+    let empty = Film { width: WIDTH, height: HEIGHT, interval: 2000, frames: Vec::new() };
+    if duration_ms <= 0 {
+        return Ok(empty);
+    }
+    // Roughly one frame every two seconds, capped so a long song stays light.
+    let count = (duration_ms / 2000).clamp(1, 240);
+    let interval = (duration_ms / count).max(250);
+    let fps = format!("fps=1000/{interval}");
+    let filter = format!("{fps},scale={WIDTH}:{HEIGHT}:flags=bilinear");
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(media)
+        .args(["-an", "-vf", &filter, "-pix_fmt", "bgr24", "-f", "rawvideo", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    quiet(&mut command);
+    let mut child = command.spawn()?;
+    let mut bytes = Vec::new();
+    child.stdout.take().expect("stdout is piped").read_to_end(&mut bytes)?;
+    child.wait()?;
+    let size = (WIDTH * HEIGHT * 3) as usize;
+    let frames: Vec<Vec<u8>> = bytes.chunks_exact(size).map(|frame| frame.to_vec()).collect();
+    if frames.is_empty() {
+        return Ok(empty);
+    }
+    // The interval is the whole span shared out over however many frames came back.
+    let interval = (duration_ms / frames.len() as i64).max(1);
+    Ok(Film { width: WIDTH, height: HEIGHT, interval, frames })
+}
+
 /// Open a file or folder with the program the system uses for it.
 pub fn open_path(path: &Path) {
     #[cfg(windows)]

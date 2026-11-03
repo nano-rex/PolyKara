@@ -448,7 +448,11 @@ impl App {
         }
         self.editor.poll();
         for event in self.shared.runner.poll() {
+            let finished = matches!(event, Event::Finished(_));
             self.shared.follow(event);
+            if finished {
+                self.editor.run_finished(&mut self.shared);
+            }
         }
         if self.tab == Tab::Songs && matches!(self.shared.states_read, Some(read) if read.elapsed().as_secs() >= 3) {
             self.shared.refresh_states();

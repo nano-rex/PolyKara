@@ -445,6 +445,36 @@ impl Canvas {
         (size.cx, size.cy)
     }
 
+    /// Stretch a top-down BGR (3 bytes per pixel) image into the box. The source
+    /// must hold at least `src_w * src_h * 3` bytes, with rows padded to 4 bytes.
+    pub fn image(&self, x: i32, y: i32, width: i32, height: i32, src_w: i32, src_h: i32, bgr: &[u8]) {
+        if src_w <= 0 || src_h <= 0 || width <= 0 || height <= 0 {
+            return;
+        }
+        let stride = ((src_w * 3 + 3) / 4 * 4) as usize;
+        if bgr.len() < stride * src_h as usize {
+            return;
+        }
+        let header = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: src_w,
+            // Negative height: the rows are stored top-down, matching ffmpeg's output.
+            biHeight: -src_h,
+            biPlanes: 1,
+            biBitCount: 24,
+            biCompression: 0,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        };
+        unsafe {
+            SetStretchBltMode(self.dc, HALFTONE);
+            StretchDIBits(self.dc, x, y, width, height, 0, 0, src_w, src_h, bgr.as_ptr() as *const std::ffi::c_void, &header, DIB_RGB_COLORS, SRCCOPY);
+        }
+    }
+
     pub fn clip(&self, left: i32, top: i32, right: i32, bottom: i32) -> i32 {
         unsafe {
             let saved = SaveDC(self.dc);
