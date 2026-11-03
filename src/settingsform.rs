@@ -278,14 +278,20 @@ mod tests {
     #[test]
     fn the_form_lists_the_tabs() {
         let tabs = form("").unwrap();
-        assert_eq!(tabs.len(), 7);
-        assert_eq!(tabs[0].get("name").str(), "Lyrics");
-        assert_eq!(tabs[6].get("name").str(), "Player and live");
-        assert!(tabs[0].get("sections").items().len() >= 3);
+        assert_eq!(tabs.len(), 8);
+        // Title and credits leads, then the App tab with the dark-mode toggle.
+        assert_eq!(tabs[0].get("name").str(), "Title and credits");
+        assert_eq!(tabs[1].get("name").str(), "App");
+        assert_eq!(tabs[7].get("name").str(), "Player and live");
+        assert!(tabs[0].get("sections").items().len() >= 2);
         let fields = tabs[0].get("sections").items()[0].get("fields").items();
         assert!(fields.iter().any(|field| field.get("key").str() == "font"));
         let colour = fields.iter().find(|field| field.get("key").str() == "color").unwrap();
         assert_eq!(colour.get("kind").str(), "colour");
+        // The App tab offers the dark-mode toggle as a tick box.
+        let app = tabs[1].get("sections").items()[0].get("fields").items();
+        let dark = app.iter().find(|field| field.get("key").str() == "dark").unwrap();
+        assert_eq!(dark.get("kind").str(), "bool");
     }
 
     #[test]
