@@ -18,6 +18,10 @@ pub const SPEAKER_PALETTE: [&str; 16] = [
 
 /// Every setting PolyKara knows, with its default. polykara.toml overrides any of them.
 pub const DEFAULT_CONFIG: &str = r#"
+[app]
+# Dark mode: show the PolyKara app window in a dark theme. Applies when you restart PolyKara.
+dark = false
+
 [video]
 play_res_x = 1920
 play_res_y = 1080

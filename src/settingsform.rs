@@ -7,10 +7,11 @@ use crate::toml::{self, Item};
 
 /// (tab, sections) in the order shown.
 pub const TABS: &[(&str, &[&str])] = &[
+    ("Title and credits", &["title", "credit"]),
+    ("App", &["app"]),
     ("Lyrics", &["lyric", "karaoke", "singers"]),
     ("Readings", &["romanization"]),
     ("Layout", &["layout", "effects", "timing", "prompt"]),
-    ("Title and credits", &["title", "credit"]),
     ("Video", &["video", "render", "logo", "watermark"]),
     ("Lyrics search", &["lyrics", "alignment", "charts"]),
     ("Player and live", &["player", "live"]),
@@ -18,6 +19,7 @@ pub const TABS: &[(&str, &[&str])] = &[
 
 pub fn section_name(name: &str) -> &str {
     match name {
+        "app" => "App settings",
         "lyric" => "Lyric text",
         "karaoke" => "Sung colours",
         "singers" => "Singers and voice colours",

@@ -1254,7 +1254,8 @@ impl EditorPage {
 
     // The lyrics list
     fn paint_lyrics(&mut self, canvas: &Canvas) {
-        canvas.fill(0, 0, canvas.width, canvas.height, rgb(255, 255, 255));
+        let dark = crate::theme::dark();
+        canvas.fill(0, 0, canvas.width, canvas.height, if dark { crate::theme::surface_bg() } else { rgb(255, 255, 255) });
         let (indent, gap) = (self.px(44), self.px(8));
         canvas.use_font(self.lyric_font);
         let row_height = canvas.measure("Ag汉").1 + self.px(8);
@@ -1295,12 +1296,13 @@ impl EditorPage {
         canvas.use_font(self.small_font);
         for (li, top) in &line_starts {
             if top - offset > -row_height && top - offset < canvas.height {
-                canvas.text(self.px(6), top - offset + self.px(5), &format!("{:>3}", li + 1), rgb(0x99, 0x99, 0x99));
+                canvas.text(self.px(6), top - offset + self.px(5), &format!("{:>3}", li + 1), if dark { crate::theme::hint_text() } else { rgb(0x99, 0x99, 0x99) });
             }
         }
         canvas.use_font(self.lyric_font);
+        let speaker_colour = if dark { rgb(0xff, 0xb0, 0x60) } else { rgb(0xa0, 0x50, 0x00) };
         for (_, x, top, label) in &speakers {
-            canvas.text(*x, top - offset + self.px(3), label, rgb(0xa0, 0x50, 0x00));
+            canvas.text(*x, top - offset + self.px(3), label, speaker_colour);
         }
         for item in &placed {
             let (top, bottom) = (item.top - offset, item.bottom - offset);
@@ -1309,9 +1311,11 @@ impl EditorPage {
             }
             let token = &self.session.lines[item.place.0].tokens[item.place.1];
             let mut colour = if token.timed() {
-                rgb(0x1b, 0x5e, 0x20)
+                if dark { rgb(0x66, 0xbb, 0x6a) } else { rgb(0x1b, 0x5e, 0x20) }
             } else if token.start.is_some() {
-                rgb(0xe6, 0x51, 0x00)
+                if dark { rgb(0xff, 0x9e, 0x40) } else { rgb(0xe6, 0x51, 0x00) }
+            } else if dark {
+                crate::theme::hint_text()
             } else {
                 rgb(0x9a, 0x9a, 0x9a)
             };

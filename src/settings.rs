@@ -9,7 +9,7 @@ use std::path::Path;
 
 use polykara::json::Value;
 
-use crate::app::{Shared, Want, DIALOG_CLASS, IDCANCEL, IDOK, PANE_CLASS};
+use crate::app::{Shared, Want, DIALOG_CLASS, IDOK, PANE_CLASS};
 use crate::win::{self, ffi::*};
 
 const ID_TABS: u16 = 50;
@@ -69,12 +69,14 @@ pub fn relative_to(home: &Path, path: &Path) -> String {
 }
 
 pub struct SettingsWindow {
+    /// The settings container, a child of the main window shown on the Settings tab.
     hwnd: HWND,
+    /// The main window, used as the owner for message boxes and pickers.
+    main: HWND,
     tabs: HWND,
     advanced: HWND,
     hint: HWND,
     save: HWND,
-    close: HWND,
     tooltip: HWND,
     names: Vec<String>,
     pages: Vec<Page>,
@@ -89,31 +91,41 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
-    pub fn open(shared: &mut Shared) -> SettingsWindow {
-        let px = |value: i32| shared.px(value);
-        let title = format!("Settings — {}", shared.hello.as_ref().map(|hello| hello.config.display().to_string()).unwrap_or_default());
-        let hwnd = win::top_window(DIALOG_CLASS, &title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, shared.main, px(940), px(720));
+    /// Build the settings as a hidden child of the main window; the Settings tab
+    /// shows it. The inner tab control holds the setting categories.
+    pub fn create(shared: &mut Shared) -> SettingsWindow {
+        let main = shared.main;
+        let hwnd = win::create(WS_EX_CONTROLPARENT, DIALOG_CLASS, "", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, main, 0);
         let tabs = win::child("SysTabControl32", "", WS_CLIPSIBLINGS | WS_TABSTOP, hwnd, ID_TABS);
         let advanced = win::multiline(hwnd, 0, "", false);
         let hint = win::label(hwnd, "Point at a setting to see what it does. Changes apply to the next run.");
         let save = win::child("BUTTON", "Save", WS_TABSTOP | BS_PUSHBUTTON, hwnd, IDOK);
-        let close = win::button(hwnd, IDCANCEL, "Close");
-        for control in [tabs, hint, save, close] {
+        for control in [tabs, hint, save] {
             win::set_font(control, shared.font);
         }
         win::set_font(advanced, shared.mono);
         let tooltip = win::tooltip(hwnd);
         shared.engine.ask("settings_form", Value::object::<&str>(vec![]), Want::SettingsForm);
         shared.engine.ask("fonts", Value::object::<&str>(vec![]), Want::Fonts);
-        let window = SettingsWindow { hwnd, tabs, advanced, hint, save, close, tooltip, names: Vec::new(), pages: Vec::new(), fields: Vec::new(), fonts: Vec::new(), text: String::new(), current: 0, dpi: shared.dpi, font: shared.font, bold: shared.bold };
-        window.layout();
-        win::enable(shared.main, false);
-        win::show(hwnd, true);
-        window
+        SettingsWindow { hwnd, main, tabs, advanced, hint, save, tooltip, names: Vec::new(), pages: Vec::new(), fields: Vec::new(), fonts: Vec::new(), text: String::new(), current: 0, dpi: shared.dpi, font: shared.font, bold: shared.bold }
     }
 
     pub fn hwnd(&self) -> HWND {
         self.hwnd
+    }
+
+    /// Show or hide the whole settings tab.
+    pub fn show(&self, visible: bool) {
+        win::show(self.hwnd, visible);
+        if visible {
+            self.show_current();
+        }
+    }
+
+    /// Place the settings container in the main window's content area.
+    pub fn place(&self, x: i32, y: i32, width: i32, height: i32) {
+        win::place(self.hwnd, x, y, width, height);
+        self.layout();
     }
 
     fn px(&self, value: i32) -> i32 {
@@ -141,9 +153,8 @@ impl SettingsWindow {
             win::place(page.pane, area.left, area.top, area.right - area.left, area.bottom - area.top);
         }
         win::place(self.advanced, area.left, area.top, area.right - area.left, area.bottom - area.top);
-        win::place(self.hint, self.px(12), height - self.px(88), width - self.px(24), self.px(40));
-        win::place(self.save, width - self.px(212), height - self.px(42), self.px(96), self.px(30));
-        win::place(self.close, width - self.px(108), height - self.px(42), self.px(96), self.px(30));
+        win::place(self.hint, self.px(12), height - self.px(88), width - self.px(130), self.px(40));
+        win::place(self.save, width - self.px(108), height - self.px(42), self.px(96), self.px(30));
         for index in 0..self.pages.len() {
             self.scroll_page(index, 0);
         }
@@ -252,7 +263,7 @@ impl SettingsWindow {
         win::add_tab(self.tabs, tabs.len(), "Advanced (file)");
         let error = value.get("error").str();
         if !error.is_empty() {
-            win::warn(self.hwnd, error);
+            win::warn(self.main, error);
         }
         self.current = if tabs.is_empty() { 0 } else { self.current.min(tabs.len()) };
         win::set_tab(self.tabs, self.current);
@@ -326,7 +337,7 @@ impl SettingsWindow {
             (Want::SettingsText, Ok(value)) => win::set_text(self.advanced, value.get("text").str()),
             (Want::SettingsSaved, Ok(value)) => {
                 self.build(&value, shared);
-                win::info(self.hwnd, "Settings saved. They apply to the next run.");
+                win::info(self.main, "Settings saved. They apply to the next run.");
             }
             (Want::Fonts, Ok(value)) => {
                 self.fonts = value.get("fonts").strings();
@@ -337,9 +348,9 @@ impl SettingsWindow {
                     win::set_text(field.control, &text);
                 }
             }
-            (Want::SettingsSaved, Err(error)) => win::warn(self.hwnd, &format!("The settings were not saved:\n{error}")),
+            (Want::SettingsSaved, Err(error)) => win::warn(self.main, &format!("The settings were not saved:\n{error}")),
             (Want::SettingsText, Err(error)) | (Want::SettingsForm, Err(error)) => {
-                win::warn(self.hwnd, &error);
+                win::warn(self.main, &error);
                 // Stay on the file until it can be read.
                 self.current = self.pages.len();
                 win::set_tab(self.tabs, self.current);
@@ -354,43 +365,36 @@ impl SettingsWindow {
         shared.engine.ask("settings_save", Value::object(vec![("text", Value::from(text)), ("changes", changes)]), Want::SettingsSaved);
     }
 
-    fn close_window(&self, shared: &Shared) {
-        win::enable(shared.main, true);
-        unsafe {
-            DestroyWindow(self.hwnd);
-            SetForegroundWindow(shared.main);
-        }
-    }
-
-    /// Messages to the settings window; the bool is false once it closed.
-    pub fn message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM, shared: &mut Shared) -> (Option<LRESULT>, bool) {
+    /// Messages to the settings container (its Save button and category tabs).
+    pub fn message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM, shared: &mut Shared) -> Option<LRESULT> {
         match message {
-            WM_SIZE => self.layout(),
-            WM_CLOSE => {
-                self.close_window(shared);
-                return (Some(0), false);
-            }
-            WM_COMMAND => match win::loword(wparam) as u16 {
-                // Enter and Escape (no button) neither save nor close: only the buttons do.
-                IDOK | IDCANCEL if lparam == 0 => {}
-                IDOK => self.save(shared),
-                IDCANCEL => {
-                    self.close_window(shared);
-                    return (Some(0), false);
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN if shared.dark => {
+                let hdc = wparam as HDC;
+                let surface = message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX;
+                unsafe {
+                    SetTextColor(hdc, crate::theme::text());
+                    SetBkColor(hdc, if surface { crate::theme::surface_bg() } else { crate::theme::window_bg() });
                 }
-                _ => return (None, true),
+                return Some(if surface { shared.surface_brush } else { shared.window_brush });
+            }
+            WM_SIZE => self.layout(),
+            WM_COMMAND => match win::loword(wparam) as u16 {
+                // Enter (no button) must not save: only the Save button does.
+                IDOK if lparam == 0 => {}
+                IDOK => self.save(shared),
+                _ => return None,
             },
             WM_NOTIFY => {
                 let header = unsafe { &*(lparam as *const NMHDR) };
                 if header.hwndFrom == self.tabs && header.code == TCN_SELCHANGE {
                     self.tab_changed(shared);
                 } else {
-                    return (None, true);
+                    return None;
                 }
             }
-            _ => return (None, true),
+            _ => return None,
         }
-        (Some(0), true)
+        Some(0)
     }
 
     fn pick(&mut self, index: usize, shared: &Shared) {
@@ -401,7 +405,7 @@ impl SettingsWindow {
         if field.kind == "colour" {
             let current = win::text(field.control);
             let (alpha, start) = ass_colour(&current).unwrap_or((0, 0xFF_FFFF));
-            if let Some(chosen) = win::choose_colour(self.hwnd, start) {
+            if let Some(chosen) = win::choose_colour(self.main, start) {
                 win::set_text(field.control, &ass_text(alpha, chosen));
                 for page in &self.pages {
                     win::redraw(page.pane);
@@ -409,7 +413,7 @@ impl SettingsWindow {
             }
         } else {
             let home = shared.home();
-            let chosen = win::open_files(self.hwnd, "Choose an image", home.as_deref(), &[("Images", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"), ("All files", "*.*")], false);
+            let chosen = win::open_files(self.main, "Choose an image", home.as_deref(), &[("Images", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"), ("All files", "*.*")], false);
             if let Some(path) = chosen.into_iter().next() {
                 let shown = match &home {
                     Some(home) => relative_to(home, &path),
@@ -433,8 +437,9 @@ impl SettingsWindow {
                     .filter(|field| unsafe { GetParent(field.control) } == hwnd)
                     .filter_map(|field| field.swatch.map(|rect| (rect, ass_colour(&win::text(field.control)).map(|(_, colour)| colour))))
                     .collect();
+                let page_bg = if shared.dark { crate::theme::window_bg() } else { unsafe { GetSysColor(COLOR_BTNFACE) } };
                 win::paint(hwnd, |canvas| {
-                    canvas.fill(0, 0, canvas.width, canvas.height, unsafe { GetSysColor(COLOR_BTNFACE) });
+                    canvas.fill(0, 0, canvas.width, canvas.height, page_bg);
                     for (rect, colour) in &swatches {
                         let (top, bottom) = (rect.top - scroll, rect.bottom - scroll);
                         match colour {
@@ -453,6 +458,15 @@ impl SettingsWindow {
                 let delta = (win::hiword(wparam) as u16 as i16) as i32;
                 let position = self.pages[index].scroll - delta * self.px(96) / 120;
                 self.set_page_scroll(index, position);
+            }
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN if shared.dark => {
+                let hdc = wparam as HDC;
+                let surface = message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX;
+                unsafe {
+                    SetTextColor(hdc, crate::theme::text());
+                    SetBkColor(hdc, if surface { crate::theme::surface_bg() } else { crate::theme::window_bg() });
+                }
+                return Some(if surface { shared.surface_brush } else { shared.window_brush });
             }
             WM_CTLCOLORSTATIC => unsafe {
                 SetBkColor(wparam as HDC, GetSysColor(COLOR_BTNFACE));

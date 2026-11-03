@@ -636,6 +636,27 @@ pub fn tab_area(hwnd: HWND) -> RECT {
 }
 
 /// List view (report style) helpers.
+/// The list-view's background, text and text-background colours (for dark mode).
+pub fn list_colours(hwnd: HWND, text: COLORREF, background: COLORREF) {
+    unsafe {
+        SendMessageW(hwnd, LVM_SETBKCOLOR, 0, background as LPARAM);
+        SendMessageW(hwnd, LVM_SETTEXTBKCOLOR, 0, background as LPARAM);
+        SendMessageW(hwnd, LVM_SETTEXTCOLOR, 0, text as LPARAM);
+    }
+}
+
+/// Turn the window's title bar dark (or light). Needs Windows 10 2004 or newer;
+/// older builds ignore it, which is harmless.
+pub fn dark_titlebar(hwnd: HWND, on: bool) {
+    let value: i32 = on as i32;
+    let pv = &value as *const i32 as *const std::ffi::c_void;
+    unsafe {
+        // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE; 19 was its number on early 2004 builds.
+        DwmSetWindowAttribute(hwnd, 20, pv, 4);
+        DwmSetWindowAttribute(hwnd, 19, pv, 4);
+    }
+}
+
 pub fn list_columns(hwnd: HWND, columns: &[(&str, i32)]) {
     unsafe { SendMessageW(hwnd, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as isize) };
     for (index, (name, width)) in columns.iter().enumerate() {

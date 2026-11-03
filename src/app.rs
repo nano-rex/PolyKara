@@ -27,7 +27,6 @@ const WM_WAKE: u32 = WM_APP + 1;
 const POLL_TIMER: usize = 1;
 pub const PLAY_TIMER: usize = 2;
 const ID_TABS: u16 = 10;
-const ID_SETTINGS: u16 = 11;
 pub const IDOK: u16 = 1;
 pub const IDCANCEL: u16 = 2;
 
@@ -184,6 +183,10 @@ pub struct Shared {
     pub font: HFONT,
     pub bold: HFONT,
     pub mono: HFONT,
+    /// Dark mode and its two reusable brushes (0 in light mode), for WM_CTLCOLOR*.
+    pub dark: bool,
+    pub window_brush: HBRUSH,
+    pub surface_brush: HBRUSH,
     /// Every control, so a DPI change can give them all the new font.
     pub controls: Vec<HWND>,
 }
@@ -329,17 +332,17 @@ pub enum Tab {
     Songs,
     Editor,
     Tools,
+    Settings,
 }
 
 pub struct App {
     pub shared: Shared,
     tabs: HWND,
-    settings_button: HWND,
     tab: Tab,
     songs: SongsPage,
     editor: EditorPage,
     tools: ToolsPage,
-    settings: Option<SettingsWindow>,
+    settings: SettingsWindow,
     options: Options,
     /// Quit once the timing being saved is written.
     quit_after_save: bool,
@@ -353,6 +356,13 @@ impl App {
     fn create(options: Options) -> App {
         let main = win::top_window(MAIN_CLASS, "PolyKara", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, 0, 1240, 800);
         MAIN.store(main, Ordering::SeqCst);
+        let dark = crate::theme::dark();
+        win::dark_titlebar(main, dark);
+        let (window_brush, surface_brush) = if dark {
+            unsafe { (CreateSolidBrush(crate::theme::window_bg()), CreateSolidBrush(crate::theme::surface_bg())) }
+        } else {
+            (0, 0)
+        };
         let dpi = win::dpi(main);
         // Resize for the screen's scaling (the window was created at 96 DPI sizes).
         unsafe { SetWindowPos(main, 0, 0, 0, 1240 * dpi as i32 / 96, 800 * dpi as i32 / 96, SWP_NOZORDER | SWP_NOACTIVATE | 0x0002) };
@@ -389,6 +399,9 @@ impl App {
             font,
             bold,
             mono,
+            dark,
+            window_brush,
+            surface_brush,
             controls: Vec::new(),
         };
         shared.styled(status);
@@ -396,12 +409,13 @@ impl App {
         win::add_tab(tabs, 0, "   Songs   ");
         win::add_tab(tabs, 1, "   Subtitle editor   ");
         win::add_tab(tabs, 2, "   Tools   ");
-        let settings_button = shared.styled(win::button(main, ID_SETTINGS, "Settings"));
+        win::add_tab(tabs, 3, "   Settings   ");
         let songs = SongsPage::create(&mut shared);
         let editor = EditorPage::create(&mut shared);
         let tools = ToolsPage::create(&mut shared);
+        let settings = SettingsWindow::create(&mut shared);
         unsafe { SetTimer(main, POLL_TIMER, 100, std::ptr::null()) };
-        let mut app = App { shared, tabs, settings_button, tab: Tab::Songs, songs, editor, tools, settings: None, options, quit_after_save: false };
+        let mut app = App { shared, tabs, tab: Tab::Songs, songs, editor, tools, settings, options, quit_after_save: false };
         app.show_tab(Tab::Songs);
         app.layout();
         app
@@ -409,10 +423,11 @@ impl App {
 
     fn show_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        win::set_tab(self.tabs, match tab { Tab::Songs => 0, Tab::Editor => 1, Tab::Tools => 2 });
+        win::set_tab(self.tabs, match tab { Tab::Songs => 0, Tab::Editor => 1, Tab::Tools => 2, Tab::Settings => 3 });
         self.songs.show(tab == Tab::Songs);
         self.editor.show(tab == Tab::Editor);
         self.tools.show(tab == Tab::Tools);
+        self.settings.show(tab == Tab::Settings);
         if tab == Tab::Editor {
             self.editor.focus();
         }
@@ -423,18 +438,16 @@ impl App {
         let (width, height) = win::client_size(shared.main);
         let (tab_height, status_height, gap) = (shared.px(30), shared.px(24), shared.px(8));
         win::place(self.tabs, gap, shared.px(4), width - 2 * gap, tab_height);
-        win::place(self.settings_button, width - gap - shared.px(90), shared.px(5), shared.px(86), tab_height - shared.px(6));
         win::place(shared.status, gap, height - status_height, width - 2 * gap, status_height);
         let (top, bottom) = (shared.px(4) + tab_height + shared.px(4), height - status_height);
         self.songs.layout(shared, gap, top, width - 2 * gap, bottom - top);
         self.editor.layout(shared, gap, top, width - 2 * gap, bottom - top);
         self.tools.layout(shared, gap, top, width - 2 * gap, bottom - top);
+        self.settings.place(gap, top, width - 2 * gap, bottom - top);
     }
 
     fn open_settings(&mut self) {
-        if self.settings.is_none() && self.shared.hello.is_some() {
-            self.settings = Some(SettingsWindow::open(&mut self.shared));
-        }
+        self.show_tab(Tab::Settings);
     }
 
     fn open_in_editor(&mut self, sid: &str) {
@@ -521,9 +534,7 @@ impl App {
             },
             Want::Describe | Want::Relative(_) | Want::NewId => self.songs.answer(want, result, &mut self.shared),
             Want::SettingsForm | Want::SettingsText | Want::SettingsSaved | Want::Fonts => {
-                if let Some(settings) = &mut self.settings {
-                    settings.answer(want, result, &mut self.shared);
-                }
+                self.settings.answer(want, result, &mut self.shared);
             }
             want => {
                 let quit = matches!(want, Want::Saved(_)) && self.quit_after_save;
@@ -582,12 +593,16 @@ impl App {
     }
 
     fn dialog_open(&self) -> bool {
-        self.settings.is_some() || self.songs.dialog().is_some() || self.editor.dialog().is_some()
+        self.songs.dialog().is_some() || self.editor.dialog().is_some()
     }
 
-    /// The dialog window that should get Tab and Enter handling, if one is open.
+    /// The window that should get Tab and Enter handling: an open dialog, or the
+    /// settings container while its tab is showing (so its fields tab-navigate).
     fn active_dialog(&self) -> Option<HWND> {
-        self.editor.dialog().or_else(|| self.songs.dialog()).or_else(|| self.settings.as_ref().map(SettingsWindow::hwnd))
+        self.editor
+            .dialog()
+            .or_else(|| self.songs.dialog())
+            .or_else(|| (self.tab == Tab::Settings).then(|| self.settings.hwnd()))
     }
 
     fn main_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
@@ -621,9 +636,7 @@ impl App {
             WM_CLOSE => self.close(),
             WM_COMMAND => {
                 let (id, code) = (win::loword(wparam) as u16, win::hiword(wparam));
-                if id == ID_SETTINGS && code == BN_CLICKED {
-                    self.open_settings();
-                } else if let Some(action) = self.songs.command(id, code, &mut self.shared) {
+                if let Some(action) = self.songs.command(id, code, &mut self.shared) {
                     match action {
                         crate::songs::Action::TimeLyrics(sid) => self.open_in_editor(&sid),
                     }
@@ -640,7 +653,7 @@ impl App {
             WM_NOTIFY => {
                 let header = unsafe { &*(lparam as *const NMHDR) };
                 if header.hwndFrom == self.tabs && header.code == TCN_SELCHANGE {
-                    let tab = match win::current_tab(self.tabs) { 0 => Tab::Songs, 1 => Tab::Editor, _ => Tab::Tools };
+                    let tab = match win::current_tab(self.tabs) { 0 => Tab::Songs, 1 => Tab::Editor, 2 => Tab::Tools, _ => Tab::Settings };
                     self.show_tab(tab);
                 } else {
                     if let Some(action) = self.songs.notify(header, &mut self.shared) {
@@ -650,6 +663,17 @@ impl App {
                     }
                     self.after();
                 }
+            }
+            WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN if self.shared.dark => {
+                // In dark mode: light text on a dark surface for text boxes and lists,
+                // and the window colour behind static labels and buttons.
+                let hdc = wparam as HDC;
+                let surface = message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX || lparam as HWND == self.shared.log;
+                unsafe {
+                    SetTextColor(hdc, crate::theme::text());
+                    SetBkColor(hdc, if surface { crate::theme::surface_bg() } else { crate::theme::window_bg() });
+                }
+                return Some(if surface { self.shared.surface_brush } else { self.shared.window_brush });
             }
             WM_CTLCOLORSTATIC if lparam as HWND == self.shared.log => unsafe {
                 // The log is a read-only text box: keep it white like an ordinary one.
@@ -663,11 +687,10 @@ impl App {
     }
 
     fn pane_message(&mut self, hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
-        let handled = self.editor.pane_message(hwnd, message, wparam, lparam, &mut self.shared);
-        let handled = match (handled, self.settings.as_mut()) {
-            (None, Some(settings)) => settings.pane_message(hwnd, message, wparam, lparam, &self.shared),
-            (handled, _) => handled,
-        };
+        let handled = self
+            .editor
+            .pane_message(hwnd, message, wparam, lparam, &mut self.shared)
+            .or_else(|| self.settings.pane_message(hwnd, message, wparam, lparam, &self.shared));
         self.after();
         handled
     }
@@ -677,12 +700,8 @@ impl App {
             self.songs.dialog_message(message, wparam, lparam, &mut self.shared)
         } else if self.editor.dialog() == Some(hwnd) {
             self.editor.dialog_message(message, wparam, lparam, &mut self.shared)
-        } else if let Some(settings) = self.settings.as_mut().filter(|settings| settings.hwnd() == hwnd) {
-            let (handled, open) = settings.message(message, wparam, lparam, &mut self.shared);
-            if !open {
-                self.settings = None;
-            }
-            handled
+        } else if self.settings.hwnd() == hwnd {
+            self.settings.message(message, wparam, lparam, &mut self.shared)
         } else {
             None
         };
@@ -725,10 +744,13 @@ unsafe extern "system" fn dialog_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
 /// Create the window and run until it closes.
 pub fn run(options: Options) -> i32 {
     win::init_controls();
-    let face = unsafe { GetSysColorBrush(COLOR_BTNFACE) };
-    win::register_class(MAIN_CLASS, Some(main_proc), face);
+    // Dark mode is read once here so the window classes get the right background.
+    let dark = polykara::config::load_config().get("app").bool_or("dark", false);
+    crate::theme::set_dark(dark);
+    let background = if dark { unsafe { CreateSolidBrush(crate::theme::window_bg()) } } else { unsafe { GetSysColorBrush(COLOR_BTNFACE) } };
+    win::register_class(MAIN_CLASS, Some(main_proc), background);
     win::register_class(PANE_CLASS, Some(pane_proc), 0);
-    win::register_class(DIALOG_CLASS, Some(dialog_proc), face);
+    win::register_class(DIALOG_CLASS, Some(dialog_proc), background);
     let app = App::create(options);
     let main = app.shared.main;
     APP.with(|cell| *cell.borrow_mut() = Some(app));

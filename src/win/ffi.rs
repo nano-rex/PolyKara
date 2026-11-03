@@ -263,6 +263,9 @@ pub const WM_COMMAND: u32 = 0x0111;
 pub const WM_TIMER: u32 = 0x0113;
 pub const WM_HSCROLL: u32 = 0x0114;
 pub const WM_VSCROLL: u32 = 0x0115;
+pub const WM_CTLCOLOREDIT: u32 = 0x0133;
+pub const WM_CTLCOLORLISTBOX: u32 = 0x0134;
+pub const WM_CTLCOLORBTN: u32 = 0x0135;
 pub const WM_CTLCOLORSTATIC: u32 = 0x0138;
 pub const WM_MOUSEMOVE: u32 = 0x0200;
 pub const WM_LBUTTONDOWN: u32 = 0x0201;
@@ -341,7 +344,10 @@ pub const LVS_SHOWSELALWAYS: u32 = 0x0008;
 pub const LVS_EX_FULLROWSELECT: usize = 0x0020;
 pub const LVS_EX_DOUBLEBUFFER: usize = 0x0001_0000;
 pub const LVS_EX_CHECKBOXES: usize = 0x0004;
+pub const LVM_SETBKCOLOR: u32 = 0x1001;
 pub const LVM_GETITEMCOUNT: u32 = 0x1004;
+pub const LVM_SETTEXTCOLOR: u32 = 0x1024;
+pub const LVM_SETTEXTBKCOLOR: u32 = 0x1026;
 pub const LVM_DELETEALLITEMS: u32 = 0x1009;
 pub const LVM_GETNEXTITEM: u32 = 0x100C;
 pub const LVM_ENSUREVISIBLE: u32 = 0x1013;
@@ -573,6 +579,11 @@ extern "system" {
 extern "system" {
     pub fn GetOpenFileNameW(dialog: *mut OPENFILENAMEW) -> BOOL;
     pub fn ChooseColorW(dialog: *mut CHOOSECOLORW) -> BOOL;
+}
+
+#[cfg_attr(windows, link(name = "dwmapi"))]
+extern "system" {
+    pub fn DwmSetWindowAttribute(hwnd: HWND, attribute: u32, value: *const c_void, size: u32) -> i32;
 }
 
 #[cfg_attr(windows, link(name = "shell32"))]

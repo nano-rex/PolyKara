@@ -11,6 +11,7 @@ mod app;
 mod editor;
 mod settings;
 mod songs;
+mod theme;
 mod toolspane;
 mod win;
 
