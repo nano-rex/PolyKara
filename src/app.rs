@@ -643,7 +643,11 @@ impl App {
                     let tab = match win::current_tab(self.tabs) { 0 => Tab::Songs, 1 => Tab::Editor, _ => Tab::Tools };
                     self.show_tab(tab);
                 } else {
-                    self.songs.notify(header, &mut self.shared);
+                    if let Some(action) = self.songs.notify(header, &mut self.shared) {
+                        match action {
+                            crate::songs::Action::TimeLyrics(sid) => self.open_in_editor(&sid),
+                        }
+                    }
                     self.after();
                 }
             }

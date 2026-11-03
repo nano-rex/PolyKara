@@ -661,8 +661,14 @@ fn generate_song(row: &Row, dry_run: bool) -> Step {
     download_lyrics(row, dry_run, false).map_err(fail)?;
     let online_primary = verify::check_lyrics(row).map_err(fail)?.primary().cloned();
 
-    // 2. Isolate the vocal from the source media.
+    // 2. Split the song: the separator writes the vocal (used below) and the
+    //    instrumental stem, and the silent video is split out alongside them.
     let vocals = separate::isolate(sid, dry_run).map_err(fail)?;
+    match separate::split_video(sid, dry_run) {
+        Ok(Some(path)) => println!("{sid}: saved the video track to {}", path.display()),
+        Ok(None) => println!("{sid}: no video stream to split (audio-only source)"),
+        Err(error) => println!("{sid}: the video track could not be split ({error})"),
+    }
 
     // 3. Transcribe the vocal, unbiased (no lyric prompt), so it is an independent witness.
     let base = paths().work.join("whisper").join(format!("{sid}.vocal"));

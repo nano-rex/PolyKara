@@ -589,10 +589,45 @@ impl SongsPage {
         None
     }
 
-    pub fn notify(&mut self, header: &NMHDR, shared: &mut Shared) {
-        if header.hwndFrom == self.list && (header.code == NM_DBLCLK || header.code == NM_RETURN) && !win::list_selected(self.list).is_empty() {
-            self.edit_song(shared);
+    pub fn notify(&mut self, header: &NMHDR, shared: &mut Shared) -> Option<Action> {
+        if header.hwndFrom != self.list {
+            return None;
         }
+        if (header.code == NM_DBLCLK || header.code == NM_RETURN) && !win::list_selected(self.list).is_empty() {
+            self.edit_song(shared);
+            return None;
+        }
+        if header.code == NM_RCLICK {
+            return self.context_menu(header, shared);
+        }
+        None
+    }
+
+    /// The right-click menu on the song list. Selects the clicked song and offers to
+    /// edit its subtitles (open it in the editor), generate them, or edit its details.
+    fn context_menu(&mut self, header: &NMHDR, shared: &mut Shared) -> Option<Action> {
+        const EDIT_SUBTITLE: u32 = 1;
+        const GENERATE: u32 = 2;
+        const EDIT_SONG: u32 = 3;
+        let activate = unsafe { &*(header as *const NMHDR as *const NMITEMACTIVATE) };
+        if activate.iItem < 0 {
+            return None;
+        }
+        let row = activate.iItem as usize;
+        let sid = self.rows.get(row).cloned()?;
+        win::list_select(self.list, &[row]);
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) };
+        let items = [(EDIT_SUBTITLE, "Edit subtitle"), (GENERATE, "Generate subtitles"), (0, ""), (EDIT_SONG, "Edit song details\u{2026}")];
+        match win::popup_menu(shared.main, (point.x, point.y), &items) {
+            Some(EDIT_SUBTITLE) => return Some(Action::TimeLyrics(sid)),
+            Some(GENERATE) => {
+                shared.start(vec!["generate".into(), sid]);
+            }
+            Some(EDIT_SONG) => self.edit_song(shared),
+            _ => {}
+        }
+        None
     }
 }
 

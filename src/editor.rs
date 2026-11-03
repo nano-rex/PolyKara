@@ -24,23 +24,41 @@ const MODES: &[(&str, KeyMode)] = &[("Hold (press = start, release = end)", KeyM
 const LYRIC_FACE: &str = "Microsoft YaHei UI";
 const HELP: &str = "Enter: play / pause    Hold Space: time the highlighted word    Backspace: undo the last word and go back    \
 ←/→: 3 s back / forward    ↑/↓: previous / next line    Shift+←/→: nudge the selected word 10 ms    Ctrl+Shift+←/→: shift the whole line 10 ms    Ctrl+Z: undo    Ctrl+S: save";
-// Timeline at 96 DPI: a fixed track-name column on the left, a ruler across the
-// top, then one lane per track — video thumbnails, the audio waveform, the timed
-// subtitle words, and the subtitle lines.
+// Timeline (logical 96-DPI units): a fixed track-name column on the left, a ruler
+// across the top, then stacked lanes — video thumbnails, the audio waveform, and
+// then one subtitle lane per singer (so duets and group songs each get their own
+// row of words). The lanes below the audio share whatever height is left, so the
+// geometry always fits the pane however many singers there are.
 const GUTTER: i32 = 62;
 const RULER: i32 = 18;
-const VIDEO_TOP: i32 = RULER + 3;
-const VIDEO_BOTTOM: i32 = VIDEO_TOP + 38;
-const WAVE_TOP: i32 = VIDEO_BOTTOM + 4;
-const WAVE_BOTTOM: i32 = WAVE_TOP + 78;
-const WORD_TOP: i32 = WAVE_BOTTOM + 4;
-const WORD_BOTTOM: i32 = WORD_TOP + 30;
-const LINE_TOP: i32 = WORD_BOTTOM + 4;
-const LINE_BOTTOM: i32 = LINE_TOP + 18;
-// The lanes, each with its label, for the track-name column and the dividers.
-const LANES: &[(&str, i32, i32)] = &[("Video", VIDEO_TOP, VIDEO_BOTTOM), ("Audio", WAVE_TOP, WAVE_BOTTOM), ("Subtitles", WORD_TOP, WORD_BOTTOM), ("Lines", LINE_TOP, LINE_BOTTOM)];
-const TIMELINE_HEIGHT: i32 = LINE_BOTTOM + 8;
+const VIDEO_H: i32 = 36;
+const AUDIO_H: i32 = 74;
+const SUB_LANE_H: i32 = 42;
+const LANE_GAP: i32 = 3;
 const EDGE_PX: i32 = 5;
+
+/// A subtitle lane: the singer it belongs to and its top/bottom in logical units.
+struct SubLane {
+    speaker: String,
+    top: i32,
+    bottom: i32,
+}
+
+/// Where each track sits in the timeline, in logical (96-DPI) units.
+struct Lanes {
+    video: (i32, i32),
+    audio: (i32, i32),
+    subs: Vec<SubLane>,
+}
+
+impl Lanes {
+    /// Split a subtitle lane into its word band (where the draggable blocks go) and
+    /// its line band (the line text underneath).
+    fn bands(top: i32, bottom: i32) -> ((i32, i32), (i32, i32)) {
+        let split = top + ((bottom - top) * 62 / 100).max(1);
+        ((top + 1, split), (split, bottom))
+    }
+}
 
 const ID_SONG: u16 = 201;
 const ID_SAVE: u16 = 202;
@@ -273,7 +291,7 @@ impl EditorPage {
             duration: 0,
             peaks: Vec::new(),
             peak_max: 1,
-            film: Film { width: 64, height: 36, interval: 2000, frames: Vec::new() },
+            film: Film { width: 160, height: 90, interval: 500, frames: Vec::new() },
             playhead: 0,
             was_playing: false,
             language: String::new(),
@@ -376,8 +394,10 @@ impl EditorPage {
         let help_height = px(40);
         let bottom = y + height;
         win::place(self.help, x, bottom - help_height, width, help_height);
-        let timeline_top = bottom - help_height - px(TIMELINE_HEIGHT);
-        win::place(self.timeline, x, timeline_top, width, px(TIMELINE_HEIGHT));
+        // Grow the timeline for each singer's lane, but never past half the editor.
+        let timeline_height = px(self.timeline_logical_height()).clamp(px(150), height / 2);
+        let timeline_top = bottom - help_height - timeline_height;
+        win::place(self.timeline, x, timeline_top, width, timeline_height);
         let hint_top = timeline_top - px(30);
         win::place(self.hint, x, hint_top + px(2), width - px(200), px(24));
         win::place(self.zoom_in, x + width - px(94), hint_top, px(94), px(26));
@@ -580,7 +600,7 @@ impl EditorPage {
                         }
                         let (ffmpeg, sender, wake) = (self.ffmpeg.clone(), self.films.0.clone(), shared.wake.clone());
                         std::thread::spawn(move || {
-                            let film = thumbnails(&ffmpeg, &media, duration).unwrap_or(Film { width: 64, height: 36, interval: 2000, frames: Vec::new() });
+                            let film = thumbnails(&ffmpeg, &media, duration).unwrap_or(Film { width: 160, height: 90, interval: 500, frames: Vec::new() });
                             let _ = sender.send((sid, film));
                             wake();
                         });
@@ -1332,10 +1352,20 @@ impl EditorPage {
     }
 
     // The preview of the sung line
+    /// The index of the video frame nearest `ms`, if a filmstrip is loaded.
+    fn frame_index(&self, ms: i64) -> Option<usize> {
+        if self.film.frames.is_empty() {
+            return None;
+        }
+        let index = (ms.max(0) / self.film.interval.max(1)) as usize;
+        Some(index.min(self.film.frames.len() - 1))
+    }
+
     fn stage_signature(&mut self, ms: i64) -> String {
         let (width, height) = win::client_size(self.stage);
         let shown = model::stage_lines(&self.session.lines, ms, self.session.cursor);
-        let mut signature = format!("{width}x{height} {:?} {:?}", self.sid, shown);
+        // The frame index is part of the signature so the preview repaints as it plays.
+        let mut signature = format!("{width}x{height} {:?} {:?} f{:?}", self.sid, shown, self.frame_index(ms));
         for li in &shown {
             let line = &self.session.lines[*li];
             signature.push_str(&format!("|{}:{}", line.text(), self.line_readings(line).is_some()));
@@ -1353,14 +1383,37 @@ impl EditorPage {
         signature
     }
 
+    /// Draw the video frame nearest `ms` centred in the stage, keeping its aspect.
+    fn draw_video_frame(&self, canvas: &Canvas, ms: i64) {
+        let index = match self.frame_index(ms) {
+            Some(index) => index,
+            None => return,
+        };
+        let (fw, fh) = (self.film.width, self.film.height);
+        if fw <= 0 || fh <= 0 {
+            return;
+        }
+        let frame = &self.film.frames[index];
+        // Fit inside the pane, centred, keeping the frame's aspect ratio.
+        let scale = (canvas.width * 1000 / fw).min(canvas.height * 1000 / fh);
+        let (dw, dh) = ((fw * scale / 1000).max(1), (fh * scale / 1000).max(1));
+        canvas.image((canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh, fw, fh, frame);
+    }
+
     fn paint_stage(&mut self, canvas: &Canvas) {
         let ms = self.position();
         self.stage_drawn = self.stage_signature(ms);
-        canvas.fill(0, 0, canvas.width, canvas.height, rgb(0x10, 0x14, 0x18));
+        // Near-black behind the video; the picture is centred over it.
+        canvas.fill(0, 0, canvas.width, canvas.height, rgb(0x08, 0x0a, 0x0c));
+        self.draw_video_frame(canvas, ms);
         let (width, height) = (canvas.width as f64, canvas.height as f64);
-        if self.session.lines.is_empty() {
+        if self.sid.is_none() {
             canvas.use_font(self.lyric_font);
             canvas.text_in(0, 0, canvas.width, canvas.height, "Choose a song", rgb(0x77, 0x77, 0x88), true);
+            return;
+        }
+        if self.session.lines.is_empty() {
+            // A song is open but has no lyrics yet: show the video alone.
             return;
         }
         let size = (canvas.height / 6).clamp(self.px(18), self.px(46));
@@ -1454,6 +1507,61 @@ impl EditorPage {
         self.ms_of((x - self.gutter()).max(0) + self.left)
     }
 
+    /// The singers in the song, in first-appearance order; one subtitle lane each.
+    /// Always at least one lane, so a song with no singer tags still has a row.
+    fn sub_speakers(&self) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for line in &self.session.lines {
+            if !seen.contains(&line.speaker) {
+                seen.push(line.speaker.clone());
+            }
+        }
+        if seen.is_empty() {
+            seen.push(String::new());
+        }
+        seen
+    }
+
+    /// Lane geometry (logical units) for a pane `avail` logical units tall. The video
+    /// and audio lanes keep fixed heights; the subtitle lanes share the rest evenly.
+    fn lanes(&self, avail: i32) -> Lanes {
+        let speakers = self.sub_speakers();
+        let video = (RULER + 3, RULER + 3 + VIDEO_H);
+        let audio = (video.1 + 4, video.1 + 4 + AUDIO_H);
+        let subs_top = audio.1 + 4;
+        let n = speakers.len() as i32;
+        // Give each lane its ideal height, or share what is left when that overflows.
+        let lane_h = ((avail - subs_top - 2) / n).clamp(14, SUB_LANE_H + LANE_GAP);
+        let subs = speakers
+            .into_iter()
+            .enumerate()
+            .map(|(index, speaker)| {
+                let top = subs_top + index as i32 * lane_h;
+                SubLane { speaker, top, bottom: top + lane_h - LANE_GAP }
+            })
+            .collect();
+        Lanes { video, audio, subs }
+    }
+
+    /// The timeline pane's wanted height (logical units) for the current song.
+    fn timeline_logical_height(&self) -> i32 {
+        let n = self.sub_speakers().len() as i32;
+        RULER + 3 + VIDEO_H + 4 + AUDIO_H + 4 + n * SUB_LANE_H + 6
+    }
+
+    /// The subtitle lane a device-pixel `y` falls in: its singer and its word and
+    /// line bands, in device pixels.
+    fn sub_lane_at(&self, y: i32) -> Option<(String, (i32, i32), (i32, i32))> {
+        let avail = win::client_size(self.timeline).1 * 96 / self.dpi as i32;
+        for lane in self.lanes(avail).subs {
+            if self.px(lane.top) <= y && y <= self.px(lane.bottom) {
+                let ((wtop, wbot), (ltop, lbot)) = Lanes::bands(lane.top, lane.bottom);
+                return Some((lane.speaker, (self.px(wtop), self.px(wbot)), (self.px(ltop), self.px(lbot))));
+            }
+        }
+        None
+    }
+
     fn timeline_end(&self) -> i64 {
         let last = self.session.lines.iter().filter_map(Line::span).map(|(_, end)| end).max().unwrap_or(0);
         self.duration.max(last + 5000)
@@ -1510,10 +1618,14 @@ impl EditorPage {
         let left = self.left;
         // Content millisecond `ms` is drawn at `off + x_of(ms)`, to the right of the column.
         let off = g - left;
+        let lanes = self.lanes(height * 96 / dpi);
+        let bottom_px = px(lanes.subs.last().map(|lane| lane.bottom).unwrap_or(lanes.audio.1));
         canvas.fill(0, 0, width, height, rgb(0x1e, 0x23, 0x28));
 
-        // A shaded lane behind each track, with a divider above it.
-        for (index, (_, top, bottom)) in LANES.iter().enumerate() {
+        // A shaded background behind every lane, with a divider above it.
+        let mut rows: Vec<(i32, i32)> = vec![lanes.video, lanes.audio];
+        rows.extend(lanes.subs.iter().map(|lane| (lane.top, lane.bottom)));
+        for (index, (top, bottom)) in rows.iter().enumerate() {
             let shade = if index % 2 == 0 { rgb(0x23, 0x2a, 0x30) } else { rgb(0x1a, 0x1f, 0x24) };
             canvas.fill(g, px(*top), width, px(*bottom), shade);
             canvas.line(g, px(*top) - px(2), width, px(*top) - px(2), rgb(0x13, 0x17, 0x1a));
@@ -1535,7 +1647,7 @@ impl EditorPage {
         }
 
         // Video track: a filmstrip of thumbnails, each stretched across its own slice of time.
-        let (vtop, vbot) = (px(VIDEO_TOP), px(VIDEO_BOTTOM));
+        let (vtop, vbot) = (px(lanes.video.0), px(lanes.video.1));
         if self.film.frames.is_empty() {
             canvas.use_font(self.small_font);
             let note = if self.media.is_some() { "(no video preview)" } else { "" };
@@ -1557,7 +1669,8 @@ impl EditorPage {
 
         // Audio track: the waveform.
         if !self.peaks.is_empty() {
-            let (middle, half) = ((px(WAVE_TOP) + px(WAVE_BOTTOM)) / 2, (px(WAVE_BOTTOM) - px(WAVE_TOP)) / 2);
+            let (atop, abot) = (px(lanes.audio.0), px(lanes.audio.1));
+            let (middle, half) = ((atop + abot) / 2, (abot - atop) / 2);
             let mut x = g;
             while x < width {
                 let low = (self.ms_of(x - off) / 10).max(0) as usize;
@@ -1571,46 +1684,55 @@ impl EditorPage {
             }
         }
 
-        // Subtitle tracks: the timed words, and the lines below them.
-        for li in self.drawing_order() {
-            let line = self.session.lines[li].clone();
-            let (span_start, span_end) = match line.span() {
-                Some(span) => span,
-                None => continue,
-            };
-            if span_end < start_ms - 1000 || span_start > end_ms + 1000 {
-                continue;
-            }
-            let guessed = !line.started();
-            let (x1, x2) = (off + self.x_of(span_start), off + self.x_of(span_end));
-            if guessed {
-                canvas.dotted_rect(x1, px(LINE_TOP), x2, px(LINE_BOTTOM), rgb(0x60, 0x7d, 0x8b));
-            } else {
-                canvas.rect(x1, px(LINE_TOP), x2, px(LINE_BOTTOM), Some(rgb(0x37, 0x47, 0x4f)), rgb(0x60, 0x7d, 0x8b));
-            }
-            canvas.use_font(self.small_font);
-            let saved = canvas.clip(x1.max(g), px(LINE_TOP), x2.max(x1 + px(200)), px(LINE_BOTTOM));
-            canvas.text_in(x1 + px(3), px(LINE_TOP), x2.max(x1 + px(400)), px(LINE_BOTTOM), &format!("{}. {}", li + 1, line.text()), if guessed { rgb(0x78, 0x90, 0x9c) } else { rgb(0xcf, 0xd8, 0xdc) }, false);
-            canvas.unclip(saved);
-            for ti in 0..line.tokens.len() {
-                let (start, end) = match self.shown_end((li, ti)) {
-                    Some(times) => times,
+        // Subtitle tracks: one lane per singer, each with its timed words and its lines.
+        let subs: Vec<(String, i32, i32)> = lanes.subs.iter().map(|lane| (lane.speaker.clone(), lane.top, lane.bottom)).collect();
+        let order = self.drawing_order();
+        for (lane_index, (speaker, top, bottom)) in subs.iter().enumerate() {
+            let ((wtop, wbot), (ltop, lbot)) = Lanes::bands(*top, *bottom);
+            let (wtop, wbot, ltop, lbot) = (px(wtop), px(wbot), px(ltop), px(lbot));
+            for &li in &order {
+                let line = self.session.lines[li].clone();
+                if &line.speaker != speaker {
+                    continue;
+                }
+                let (span_start, span_end) = match line.span() {
+                    Some(span) => span,
                     None => continue,
                 };
-                let token = &line.tokens[ti];
-                let fill = if Some((li, ti)) == self.session.selected {
-                    rgb(0xff, 0x8f, 0x00)
-                } else if token.end.is_none() {
-                    rgb(0xe6, 0x51, 0x00)
-                } else if li % 2 == 0 {
-                    rgb(0x2e, 0x7d, 0x32)
+                if span_end < start_ms - 1000 || span_start > end_ms + 1000 {
+                    continue;
+                }
+                let guessed = !line.started();
+                let (x1, x2) = (off + self.x_of(span_start), off + self.x_of(span_end));
+                if guessed {
+                    canvas.dotted_rect(x1, ltop, x2, lbot, rgb(0x60, 0x7d, 0x8b));
                 } else {
-                    rgb(0x15, 0x65, 0xc0)
-                };
-                let (x1, x2) = (off + self.x_of(start), off + self.x_of(end));
-                canvas.rect(x1, px(WORD_TOP), x2.max(x1 + 2), px(WORD_BOTTOM), Some(fill), rgb(0xe0, 0xe0, 0xe0));
-                if x2 - x1 > px(10) {
-                    canvas.text_in(x1, px(WORD_TOP), x2, px(WORD_BOTTOM), token.text.trim(), rgb(255, 255, 255), true);
+                    canvas.rect(x1, ltop, x2, lbot, Some(rgb(0x37, 0x47, 0x4f)), rgb(0x60, 0x7d, 0x8b));
+                }
+                canvas.use_font(self.small_font);
+                let saved = canvas.clip(x1.max(g), ltop, x2.max(x1 + px(200)), lbot);
+                canvas.text_in(x1 + px(3), ltop, x2.max(x1 + px(400)), lbot, &format!("{}. {}", li + 1, line.text()), if guessed { rgb(0x78, 0x90, 0x9c) } else { rgb(0xcf, 0xd8, 0xdc) }, false);
+                canvas.unclip(saved);
+                for ti in 0..line.tokens.len() {
+                    let (start, end) = match self.shown_end((li, ti)) {
+                        Some(times) => times,
+                        None => continue,
+                    };
+                    let token = &line.tokens[ti];
+                    let fill = if Some((li, ti)) == self.session.selected {
+                        rgb(0xff, 0x8f, 0x00)
+                    } else if token.end.is_none() {
+                        rgb(0xe6, 0x51, 0x00)
+                    } else if lane_index % 2 == 0 {
+                        rgb(0x2e, 0x7d, 0x32)
+                    } else {
+                        rgb(0x15, 0x65, 0xc0)
+                    };
+                    let (x1, x2) = (off + self.x_of(start), off + self.x_of(end));
+                    canvas.rect(x1, wtop, x2.max(x1 + 2), wbot, Some(fill), rgb(0xe0, 0xe0, 0xe0));
+                    if x2 - x1 > px(10) {
+                        canvas.text_in(x1, wtop, x2, wbot, token.text.trim(), rgb(255, 255, 255), true);
+                    }
                 }
             }
         }
@@ -1619,32 +1741,51 @@ impl EditorPage {
         let position = self.position();
         let x = off + self.x_of(position);
         if x >= g {
-            canvas.fill(x - 1, 0, x + 1, px(LINE_BOTTOM) + px(6), rgb(0xff, 0x52, 0x52));
+            canvas.fill(x - 1, 0, x + 1, bottom_px + px(4), rgb(0xff, 0x52, 0x52));
         }
 
         // The track-name column on top, so nothing scrolls under it.
         canvas.fill(0, 0, g, height, rgb(0x15, 0x1a, 0x1e));
         canvas.line(g, 0, g, height, rgb(0x34, 0x3c, 0x43));
         canvas.use_font(self.small_font);
-        for (name, top, bottom) in LANES {
-            canvas.text_in(px(6), px(*top), g - px(4), px(*bottom), name, rgb(0xb2, 0xbe, 0xc6), false);
+        let label_colour = rgb(0xb2, 0xbe, 0xc6);
+        canvas.text_in(px(6), px(lanes.video.0), g - px(4), px(lanes.video.1), "Video", label_colour, false);
+        canvas.text_in(px(6), px(lanes.audio.0), g - px(4), px(lanes.audio.1), "Audio", label_colour, false);
+        let solo = lanes.subs.len() == 1;
+        for (index, lane) in lanes.subs.iter().enumerate() {
+            let label = if !lane.speaker.is_empty() {
+                lane.speaker.clone()
+            } else if solo {
+                "Subtitles".to_string()
+            } else {
+                format!("Voice {}", index + 1)
+            };
+            canvas.text_in(px(6), px(lane.top), g - px(4), px(lane.bottom), &label, label_colour, false);
         }
         canvas.use_font(self.ruler_font);
         canvas.text(px(6), px(2), "Time", rgb(0x77, 0x77, 0x88));
     }
 
-    /// The word under a point in the timeline pane.
+    /// The word under a point in the timeline pane. Only words sung by the singer of
+    /// the lane the point is in can be hit, so each singer's row is independent.
     fn word_at(&mut self, x: i32, y: i32) -> Option<Place> {
-        if !(self.px(WORD_TOP)..=self.px(WORD_BOTTOM)).contains(&y) || x < self.gutter() {
+        if x < self.gutter() {
             return None;
         }
-        let x = x - self.gutter() + self.left;
+        let (speaker, (wtop, wbot), _) = self.sub_lane_at(y)?;
+        if !(wtop..=wbot).contains(&y) {
+            return None;
+        }
+        let cx = x - self.gutter() + self.left;
         let mut found = None;
         for li in self.drawing_order() {
+            if self.session.lines[li].speaker != speaker {
+                continue;
+            }
             for ti in 0..self.session.lines[li].tokens.len() {
                 if let Some((start, end)) = self.shown_end((li, ti)) {
                     let (x1, x2) = (self.x_of(start), self.x_of(end).max(self.x_of(start) + 2));
-                    if x1 - 1 <= x && x <= x2 + 1 {
+                    if x1 - 1 <= cx && cx <= x2 + 1 {
                         found = Some((li, ti));
                     }
                 }
@@ -1682,13 +1823,20 @@ impl EditorPage {
                 if x < self.gutter() {
                     return;
                 }
-                if (self.px(LINE_TOP)..=self.px(LINE_BOTTOM)).contains(&y) {
-                    let ms = self.ms_at(x);
-                    let hit = self.drawing_order().into_iter().rev().find(|li| matches!(self.session.lines[*li].span(), Some((start, end)) if start <= ms && ms <= end));
-                    if let Some(li) = hit {
-                        self.session.cursor = Some((li, 0));
-                        self.session.selected = Some((li, 0));
-                        self.scroll_to = self.session.cursor;
+                // A click on a line (in a singer's line band) selects that line.
+                if let Some((speaker, _, (ltop, lbot))) = self.sub_lane_at(y) {
+                    if (ltop..=lbot).contains(&y) {
+                        let ms = self.ms_at(x);
+                        let hit = self
+                            .drawing_order()
+                            .into_iter()
+                            .rev()
+                            .find(|li| self.session.lines[*li].speaker == speaker && matches!(self.session.lines[*li].span(), Some((start, end)) if start <= ms && ms <= end));
+                        if let Some(li) = hit {
+                            self.session.cursor = Some((li, 0));
+                            self.session.selected = Some((li, 0));
+                            self.scroll_to = self.session.cursor;
+                        }
                     }
                 }
                 let at = self.ms_at(x);

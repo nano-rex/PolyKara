@@ -166,6 +166,19 @@ pub struct LVITEMW {
 }
 
 #[repr(C)]
+pub struct NMITEMACTIVATE {
+    pub hdr: NMHDR,
+    pub iItem: i32,
+    pub iSubItem: i32,
+    pub uNewState: u32,
+    pub uOldState: u32,
+    pub uChanged: u32,
+    pub ptAction: POINT,
+    pub lParam: LPARAM,
+    pub uKeyFlags: u32,
+}
+
+#[repr(C)]
 pub struct NMHDR {
     pub hwndFrom: HWND,
     pub idFrom: usize,
@@ -349,6 +362,12 @@ pub const LVIS_STATEIMAGEMASK: u32 = 0xF000;
 pub const LVNI_SELECTED: usize = 0x0002;
 pub const NM_DBLCLK: u32 = (-3i32) as u32;
 pub const NM_RETURN: u32 = (-4i32) as u32;
+pub const NM_RCLICK: u32 = (-5i32) as u32;
+
+pub const MF_STRING: u32 = 0x0000;
+pub const MF_SEPARATOR: u32 = 0x0800;
+pub const TPM_RETURNCMD: u32 = 0x0100;
+pub const TPM_RIGHTBUTTON: u32 = 0x0002;
 
 pub const TCM_GETCURSEL: u32 = 0x130B;
 pub const TCM_SETCURSEL: u32 = 0x130C;
@@ -507,6 +526,10 @@ extern "system" {
     pub fn GetSysColorBrush(index: i32) -> HBRUSH;
     pub fn GetSysColor(index: i32) -> COLORREF;
     pub fn SetForegroundWindow(hwnd: HWND) -> BOOL;
+    pub fn CreatePopupMenu() -> isize;
+    pub fn AppendMenuW(menu: isize, flags: u32, id: usize, text: *const u16) -> BOOL;
+    pub fn TrackPopupMenu(menu: isize, flags: u32, x: i32, y: i32, reserved: i32, hwnd: HWND, rect: *const RECT) -> BOOL;
+    pub fn DestroyMenu(menu: isize) -> BOOL;
 }
 
 #[cfg_attr(windows, link(name = "gdi32"))]

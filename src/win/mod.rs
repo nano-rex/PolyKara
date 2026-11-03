@@ -251,6 +251,30 @@ fn message(owner: HWND, text: &str, kind: u32) -> i32 {
     unsafe { MessageBoxW(owner, text.as_ptr(), caption.as_ptr(), kind) }
 }
 
+/// Show a context menu at the screen point and return the id the user picked, or
+/// None if they dismissed it. An item whose text is empty is drawn as a separator.
+pub fn popup_menu(owner: HWND, at: (i32, i32), items: &[(u32, &str)]) -> Option<u32> {
+    unsafe {
+        let menu = CreatePopupMenu();
+        if menu == 0 {
+            return None;
+        }
+        for (id, text) in items {
+            if text.is_empty() {
+                AppendMenuW(menu, MF_SEPARATOR, 0, null());
+            } else {
+                let wide = wide(text);
+                AppendMenuW(menu, MF_STRING, *id as usize, wide.as_ptr());
+            }
+        }
+        // The owner must be foreground or the menu dismisses itself immediately.
+        SetForegroundWindow(owner);
+        let chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.0, at.1, 0, owner, null());
+        DestroyMenu(menu);
+        (chosen != 0).then_some(chosen as u32)
+    }
+}
+
 pub fn info(owner: HWND, text: &str) {
     message(owner, text, MB_OK | MB_ICONINFORMATION);
 }

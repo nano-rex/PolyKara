@@ -69,15 +69,16 @@ pub struct Film {
 /// Decode evenly spaced thumbnails from the video with ffmpeg, for the timeline's
 /// video track. Returns no frames when the media has no usable video stream.
 pub fn thumbnails(ffmpeg: &Path, media: &Path, duration_ms: i64) -> std::io::Result<Film> {
-    const WIDTH: i32 = 64;
-    const HEIGHT: i32 = 36;
-    let empty = Film { width: WIDTH, height: HEIGHT, interval: 2000, frames: Vec::new() };
+    // Big enough to read as a centred preview, small enough to keep many in memory.
+    const WIDTH: i32 = 160;
+    const HEIGHT: i32 = 90;
+    let empty = Film { width: WIDTH, height: HEIGHT, interval: 500, frames: Vec::new() };
     if duration_ms <= 0 {
         return Ok(empty);
     }
-    // Roughly one frame every two seconds, capped so a long song stays light.
-    let count = (duration_ms / 2000).clamp(1, 240);
-    let interval = (duration_ms / count).max(250);
+    // About two frames a second, capped so a long song stays within a few tens of MB.
+    let count = (duration_ms / 500).clamp(1, 700);
+    let interval = (duration_ms / count).max(200);
     let fps = format!("fps=1000/{interval}");
     let filter = format!("{fps},scale={WIDTH}:{HEIGHT}:flags=bilinear");
     let mut command = Command::new(ffmpeg);

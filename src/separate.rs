@@ -1,8 +1,11 @@
 //! Vocal/instrument separation by shelling out to a bundled separator, the way
 //! Ultimate Vocal Remover does it: a prebuilt CPU model (e.g. demucs.cpp or a
-//! UVR MDX-Net model) run as its own program. PolyKara only needs the vocal
-//! stem — written to work/vocals/<id>.wav — which it then transcribes with
-//! whisper.cpp to get an independent reading of the words that are actually sung.
+//! UVR MDX-Net model) run as its own program. Generating subtitles splits the
+//! song three ways, all kept under work/:
+//!   - the vocal        → work/vocals/<id>.wav        (transcribed with whisper.cpp
+//!                          to read the words that are actually sung — the subtitles);
+//!   - the instrumental → work/instrumental/<id>.wav  (the karaoke backing);
+//!   - the video        → work/video/<id>.<ext>       (the picture with no audio).
 //!
 //! Nothing here is PolyKara-specific to one tool: the program, its model folder
 //! and its argument order are taken from `[separation]` in polykara.toml so the
@@ -99,6 +102,21 @@ pub fn vocals_path(sid: &str) -> PathBuf {
     paths().work.join("vocals").join(format!("{sid}.wav"))
 }
 
+/// Where the isolated instrumental (karaoke backing) of a song is kept.
+pub fn instrumental_path(sid: &str) -> PathBuf {
+    paths().work.join("instrumental").join(format!("{sid}.wav"))
+}
+
+/// The silent video stream split out of a song's media, if one was made.
+pub fn video_path(sid: &str) -> Option<PathBuf> {
+    let folder = paths().work.join("video");
+    let entries = std::fs::read_dir(&folder).ok()?;
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.file_stem().map(|stem| stem.to_string_lossy() == sid).unwrap_or(false))
+}
+
 /// Isolate the vocal of `input` (a wav/flac) into work/vocals/<id>.wav and return
 /// that path. The separator writes several stems into a per-song folder; the one
 /// whose name mentions the vocal is copied out.
@@ -157,6 +175,23 @@ pub fn separate(sid: &str, input: &Path, dry_run: bool) -> Result<PathBuf, Strin
     if produced != vocals {
         std::fs::copy(&produced, &vocals).map_err(|error| error.to_string())?;
     }
+    // Keep the instrumental (karaoke backing) stem too. Best-effort: a missing
+    // instrumental never fails subtitle generation.
+    match find_instrumental_stem(&out_dir) {
+        Some(instrumental) => {
+            let target = instrumental_path(sid);
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if instrumental != target {
+                match std::fs::copy(&instrumental, &target) {
+                    Ok(_) => println!("{sid}: saved the instrumental track to {}", target.display()),
+                    Err(error) => println!("{sid}: the instrumental stem could not be saved ({error})"),
+                }
+            }
+        }
+        None => println!("{sid}: the separator produced no instrumental stem; skipping it"),
+    }
     Ok(vocals)
 }
 
@@ -188,6 +223,62 @@ pub fn isolate(sid: &str, dry_run: bool) -> Result<PathBuf, String> {
     separate(sid, &input, dry_run)
 }
 
+/// True when the file name is an audio stem (wav/flac/mp3/ogg).
+fn is_audio(name: &str) -> bool {
+    name.ends_with(".wav") || name.ends_with(".flac") || name.ends_with(".mp3") || name.ends_with(".ogg")
+}
+
+/// True when the stem name marks it as the instrumental (no-vocals) stem.
+fn names_instrumental(name: &str) -> bool {
+    name.contains("no_vocal") || name.contains("no vocal") || name.contains("instrumental") || name.contains("accompaniment") || name.contains("karaoke")
+}
+
+/// Find the instrumental (no-vocals) audio stem under `dir`.
+fn find_instrumental_stem(dir: &Path) -> Option<PathBuf> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(folder) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&folder) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let name = path.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
+                if is_audio(&name) && names_instrumental(&name) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Split the silent video stream out of the song's media into work/video/<id>.<ext>,
+/// keeping the source container so the stream copies without re-encoding. Best-effort:
+/// returns None when the media has no video (an audio-only download).
+pub fn split_video(sid: &str, dry_run: bool) -> Result<Option<PathBuf>, String> {
+    let media = crate::manifest::source(sid)?;
+    if !crate::localmedia::probe(&media).video {
+        return Ok(None);
+    }
+    let ext = media.extension().map(|ext| ext.to_string_lossy().to_lowercase()).unwrap_or_else(|| "mp4".into());
+    let target = paths().work.join("video").join(format!("{sid}.{ext}"));
+    if dry_run {
+        return Ok(Some(target));
+    }
+    std::fs::create_dir_all(paths().work.join("video")).map_err(|error| error.to_string())?;
+    let args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-y", "-i"]
+        .iter()
+        .map(|item| item.to_string())
+        .chain(std::iter::once(media.display().to_string()))
+        .chain(["-an", "-c", "copy"].iter().map(|item| item.to_string()))
+        .chain(std::iter::once(target.display().to_string()))
+        .collect();
+    config::run("ffmpeg", &args, false, None)?;
+    Ok(Some(target))
+}
+
 /// Find the isolated-vocal audio file under `dir`. Prefers an exact "vocals"/"vocal"
 /// stem and never returns the "no_vocals" / instrumental stem.
 fn find_vocal_stem(dir: &Path) -> Option<PathBuf> {
@@ -202,9 +293,7 @@ fn find_vocal_stem(dir: &Path) -> Option<PathBuf> {
                     continue;
                 }
                 let name = path.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
-                let audio = name.ends_with(".wav") || name.ends_with(".flac") || name.ends_with(".mp3") || name.ends_with(".ogg");
-                let not_vocal = name.contains("no_vocal") || name.contains("no vocal") || name.contains("instrumental") || name.contains("accompaniment") || name.contains("karaoke");
-                if audio && name.contains("vocal") && !not_vocal {
+                if is_audio(&name) && name.contains("vocal") && !names_instrumental(&name) {
                     let stem = path.file_stem().map(|stem| stem.to_string_lossy().to_lowercase()).unwrap_or_default();
                     if stem == "vocals" || stem == "vocal" {
                         return Some(path);
