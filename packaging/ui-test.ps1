@@ -103,12 +103,12 @@ Start-Sleep -Seconds 10
 Capture $main "$Out\songs.png"
 Stop-App $proc
 
-# 2. Settings.
+# 2. Settings (now the fourth tab, a child of the main window).
 $proc, $main = Start-App @("--settings")
 Start-Sleep -Seconds 12
-$settings = [Ui]::FindWindowW("PolyKaraDialog", [NullString]::Value)
-if ($settings -eq [IntPtr]::Zero) { throw "the settings window did not open" }
-Capture $settings "$Out\settings.png"
+$settings = [Ui]::FindWindowExW($main, [IntPtr]::Zero, "PolyKaraDialog", [NullString]::Value)
+if ($settings -eq [IntPtr]::Zero) { Show-Crash; throw "the settings tab did not open" }
+Capture $main "$Out\settings.png"
 Stop-App $proc
 
 # 3. The timing editor: play, time the first untimed word (重) by holding Space, save.
